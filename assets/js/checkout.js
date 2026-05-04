@@ -1,6 +1,5 @@
 /**
  * Custom Checkout – Frontend JS
- * Communicates with WC Store API and our own /cco/v1/ endpoints.
  */
 
 ( function ( $ ) {
@@ -17,13 +16,11 @@
         'Nonce':        nonce,
     } );
 
-    // Attach formatting helper to CCO for potential outside use
     window.CCO.fmt = ( amount ) =>
         currency + parseFloat( amount ).toFixed( 2 );
 
     const fmt = window.CCO.fmt;
 
-    // Debounce helper
     function debounce( func, wait ) {
         let timeout;
         return function( ...args ) {
@@ -32,9 +29,6 @@
         };
     }
 
-    /**
-     * Unified API Caller
-     */
     async function apiCall( url, options = {} ) {
         const isStoreApi = url.includes( '/wc/store/v1/' );
         const fetchOptions = {
@@ -72,52 +66,40 @@
     function setLoading( loading ) {
         const $btn = $( '#cco-place-order' );
         $btn.prop( 'disabled', loading );
-        $btn.find( '.cco-btn-text' ).toggle( ! loading );
-        $btn.find( '.cco-btn-spinner' ).toggle( loading );
-        
         if ( loading ) {
-            $( '.cco-summary-section' ).addClass( 'cco-is-loading' );
+            $btn.find( '.cco-btn-text' ).text( 'Processing...' );
+            $( '.cco-summary-card' ).addClass( 'cco-is-loading' );
         } else {
-            $( '.cco-summary-section' ).removeClass( 'cco-is-loading' );
+            $btn.find( '.cco-btn-text' ).text( 'Complete order' );
+            $( '.cco-summary-card' ).removeClass( 'cco-is-loading' );
         }
     }
 
     // ---------------------------------------------------------------
-    // 1. Load cart summary from our server-side endpoint
+    // 1. Cart Summary
     // ---------------------------------------------------------------
 
     async function loadCart() {
         try {
             const data = await apiCall( `${apiBase}/cart-summary` );
-
             renderCartItems( data.items );
             renderCartTotals( data );
-
-            if ( data.item_count > 0 ) {
-                $( '#cco-place-order' ).prop( 'disabled', false );
-            } else {
-                // If cart became empty via AJAX updates, redirect to shop
-                window.location.href = window.location.origin + window.location.pathname.replace(/\/[^/]+\/?$/, '/shop/');
-            }
-
+            $( '#cco-place-order' ).prop( 'disabled', data.item_count === 0 );
         } catch ( err ) {
-            showNotice( 'Error loading cart data.' );
-            console.error( err );
+            console.error( 'Error loading cart:', err );
         } finally {
-            $( '.cco-summary-section' ).removeClass( 'cco-is-loading' );
+            $( '.cco-summary-card' ).removeClass( 'cco-is-loading' );
         }
     }
 
     function renderCartItems( items ) {
         if ( ! items || ! items.length ) {
-            $( '#cco-cart-items' ).html(
-                '<p>' + ( window.CCO?.i18n?.empty_cart || 'Your cart is empty.' ) + '</p>'
-            );
+            $( '#cco-cart-items' ).html( '<p>Your cart is empty.</p>' );
             return;
         }
 
-        const rows = items.map( item => `
-            <div class="cco-cart-item" data-key="${item.key}">
+        const html = items.map( item => `
+            <div class="cco-cart-item">
                 <div class="cco-cart-item__img-wrapper">
                     <img src="${item.image}" alt="${item.name}" class="cco-cart-item__img">
                     <span class="cco-cart-item__qty-badge">${item.quantity}</span>
@@ -129,8 +111,7 @@
                 <span class="cco-cart-item__total">${fmt( item.line_total )}</span>
             </div>
         ` ).join( '' );
-
-        $( '#cco-cart-items' ).html( rows );
+        $( '#cco-cart-items' ).html( html );
     }
 
     function renderCartTotals( data ) {
@@ -138,107 +119,50 @@
             <div class="cco-totals-row">
                 <span>Subtotal - ${data.item_count} items</span>
                 <span class="cco-weight-bold">${fmt( data.subtotal )}</span>
-            </div>`;
-
-        if ( data.discount_total > 0 ) {
-            html += `
-            <div class="cco-totals-row cco-totals-row--discount">
-                <span>Discount</span>
-                <span class="cco-weight-bold">−${fmt( data.discount_total )}</span>
-            </div>`;
-            
-            if ( data.coupons && data.coupons.length ) {
-                html += `<div class="cco-applied-coupons">`;
-                data.coupons.forEach( code => {
-                    html += `<span class="cco-coupon-tag">${code} <button type="button" class="cco-remove-coupon" data-code="${code}">✕</button></span>`;
-                } );
-                html += `</div>`;
-            }
-        }
-
-        // Shipping
-        html += `
-        <div class="cco-totals-row">
-            <span>Shipping</span>
-            <span>${ data.shipping_total > 0 ? fmt(data.shipping_total) : 'Free' }</span>
-        </div>`;
-
-
-        html += `
-        <div class="cco-totals-row">
-            <span>Estimated taxes</span>
-            <span>${fmt( data.tax_total )}</span>
-        </div>`;
-
-        html += `
+            </div>
+            <div class="cco-totals-row">
+                <span>Shipping</span>
+                <span>${ data.shipping_total > 0 ? fmt(data.shipping_total) : 'Free' }</span>
+            </div>
+            <div class="cco-totals-row">
+                <span>Estimated taxes</span>
+                <span>${fmt( data.tax_total )}</span>
+            </div>
             <div class="cco-totals-row cco-totals-row--total">
                 <span class="cco-total-label">Total</span>
                 <span class="cco-total-price">
-                    <small class="cco-currency-code">AUD</small> ${fmt( data.total )}
+                    <small class="cco-currency-code">AUD</small>${fmt( data.total )}
                 </span>
-            </div>`;
-
+            </div>
+        `;
         $( '#cco-cart-totals' ).html( html );
     }
 
     // ---------------------------------------------------------------
-    // 2. Apply coupon via WC Store API
+    // 2. Coupon
     // ---------------------------------------------------------------
 
     $( '#cco-apply-coupon' ).on( 'click', async function () {
         const code = $( '#cco-coupon-input' ).val().trim();
         if ( ! code ) return;
-
         clearNotice();
-
         try {
-            const res  = await fetch( `${storeApiBase}/cart/apply-coupon`, {
-                method:      'POST',
-                credentials: 'same-origin',
-                headers:     headers(),
-                body:        JSON.stringify( { code } ),
-            } );
-            const data = await res.json();
-
-            if ( ! res.ok ) {
-                showNotice( data.message || 'Invalid coupon.' );
-                return;
-            }
-
-            showNotice( 'Coupon applied!', 'success' );
-            await loadCart(); // Refresh totals.
-
-        } catch ( err ) {
-            showNotice( 'Error applying coupon.' );
-        }
-    } );
-
-    // Handle coupon removal
-    $( document ).on( 'click', '.cco-remove-coupon', async function() {
-        const code = $( this ).data( 'code' );
-        try {
-            await fetch( `${storeApiBase}/cart/remove-coupon`, {
+            await apiCall( `${storeApiBase}/cart/apply-coupon`, {
                 method: 'POST',
-                credentials: 'same-origin',
-                headers: headers(),
                 body: JSON.stringify( { code } )
             } );
-            await loadCart();
-        } catch ( e ) {
-            console.error('Failed to remove coupon', e);
+            showNotice( 'Coupon applied!', 'success' );
+            loadCart();
+        } catch ( err ) {
+            showNotice( err.message );
         }
     } );
 
     // ---------------------------------------------------------------
-    // 3. Collect form data
+    // 3. Address Sync
     // ---------------------------------------------------------------
 
-    function collectAddress( prefix ) {
-        const get = ( name ) =>
-            $( `#cco-${prefix}${name}` ).length
-                ? $( `#cco-${prefix}${name}` ).val()
-                : $( `[name="${name}"]` ).val() || '';
-
+    function collectAddress() {
         return {
             first_name: $( '#cco-first-name' ).val(),
             last_name:  $( '#cco-last-name'  ).val(),
@@ -253,107 +177,70 @@
         };
     }
 
-    function collectShippingAddress() {
-        if ( ! $( '#cco-ship-to-different' ).is( ':checked' ) ) {
-            return collectAddress( '' );
-        }
-        return {
-            first_name: $( '#cco-ship-first-name' ).val(),
-            last_name:  $( '#cco-ship-last-name'  ).val(),
-            address_1:  $( '#cco-ship-address1'   ).val(),
-            address_2:  $( '#cco-ship-address2'   ).val(),
-            city:       $( '#cco-ship-city'        ).val(),
-            state:      $( '#cco-ship-state'       ).val(),
-            postcode:   $( '#cco-ship-postcode'    ).val(),
-            country:    $( '#cco-ship-country'     ).val(),
-            email:      $( '#cco-email'            ).val(),
-            phone:      $( '#cco-phone'            ).val(),
-        };
-    }
-
-    function validateForm() {
-        const required = [
-            '#cco-email', '#cco-phone', '#cco-first-name',
-            '#cco-last-name', '#cco-address1', '#cco-city', '#cco-country',
-        ];
-        for ( const sel of required ) {
-            if ( ! $( sel ).val().trim() ) {
-                $( sel ).addClass( 'cco-field--error' ).focus();
-                return false;
-            }
-        }
-        return true;
-    }
-
-    $( '.cco-form-section input, .cco-form-section select' ).on( 'input change', function () {
-        $( this ).removeClass( 'cco-field--error' );
-    } );
-
-    // Debounced address sync
     const syncAddress = debounce( async function() {
-        const payload = {
-            billing_address: collectAddress(''),
-            shipping_address: collectShippingAddress()
-        };
-
         try {
-            $( '.cco-summary-section' ).addClass( 'cco-is-loading' );
+            $( '.cco-summary-card' ).addClass( 'cco-is-loading' );
             await apiCall( `${storeApiBase}/cart/update-customer`, {
                 method: 'POST',
-                body: JSON.stringify( payload )
+                body: JSON.stringify( {
+                    billing_address: collectAddress(),
+                    shipping_address: collectAddress() // Always sync for now
+                } )
             } );
-            await loadCart();
+            loadCart();
         } catch ( e ) {
-            console.error('Failed to sync customer data', e);
+            console.error( 'Address sync failed:', e );
         }
-    }, 500 );
+    }, 800 );
 
-    $( '.cco-form-section input, .cco-form-section select' ).on( 'input change blur', function() {
-        if ( $(this).closest('.cco-shipping-address').length && !$( '#cco-ship-to-different' ).is( ':checked' ) ) return;
-        syncAddress();
-    } );
+    $( document ).on( 'input change', '.cco-form-column input, .cco-form-column select', syncAddress );
 
+    // ---------------------------------------------------------------
+    // 4. Timer & Payment Toggles
+    // ---------------------------------------------------------------
 
+    function startTimer( durationSeconds ) {
+        let timer = durationSeconds, minutes, seconds;
+        const $display = $( '#cco-countdown' );
+        const interval = setInterval( function () {
+            minutes = parseInt( timer / 60, 10 );
+            seconds = parseInt( timer % 60, 10 );
 
-    // Handle quantity changes (debounced)
-    const updateQuantity = debounce( async function( key, quantity ) {
-        try {
-            $( '.cco-summary-section' ).addClass( 'cco-is-loading' );
-            await apiCall( `${storeApiBase}/cart/items/${key}`, {
-                method: 'PUT',
-                body: JSON.stringify( { quantity: parseInt(quantity) } )
-            } );
-            await loadCart();
-        } catch ( e ) {
-            showNotice( e.message || 'Failed to update quantity.' );
+            minutes = minutes < 10 ? "0" + minutes : minutes;
+            seconds = seconds < 10 ? "0" + seconds : seconds;
+
+            $display.text( minutes + "m " + seconds + "s" );
+
+            if ( --timer < 0 ) {
+                clearInterval( interval );
+                $display.text( "Expired" );
+            }
+        }, 1000 );
+    }
+
+    $( document ).on( 'change', 'input[name="payment_method"]', function() {
+        const val = $( this ).val();
+        $( '.cco-payment-method' ).removeClass( 'cco-payment-method--active' );
+        $( this ).closest( '.cco-payment-method' ).addClass( 'cco-payment-method--active' );
+        
+        if ( val === 'cco_card' ) {
+            $( '#cco-card-element' ).slideDown();
+        } else {
+            $( '#cco-card-element' ).slideUp();
         }
-    }, 300 );
-
-    $( document ).on( 'change input', '.cco-item-qty', function() {
-        const key = $( this ).closest( '.cco-cart-item' ).data( 'key' );
-        const quantity = $( this ).val();
-        if ( quantity < 1 ) return;
-        updateQuantity( key, quantity );
     } );
 
     // ---------------------------------------------------------------
-    // 4. Place order
+    // 5. Place Order
     // ---------------------------------------------------------------
 
     $( '#cco-place-order' ).on( 'click', async function () {
         clearNotice();
-
-        if ( ! validateForm() ) {
-            showNotice( i18n.fill_required );
-            return;
-        }
-
         setLoading( true );
 
         const payload = {
-            billing:      collectAddress( '' ),
-            shipping:     collectShippingAddress(),
-            order_note:   $( '#cco-order-note' ).val(),
+            billing:      collectAddress(),
+            shipping:     collectAddress(),
             payment_data: {}, 
         };
 
@@ -362,46 +249,10 @@
                 method: 'POST',
                 body:   JSON.stringify( payload ),
             } );
-
             window.location.href = data.redirect_url;
-
         } catch ( err ) {
-            showNotice( i18n.order_failed );
+            showNotice( 'Order failed. Please check your details.' );
             setLoading( false );
-            console.error( err );
-        }
-    } );
-
-    // ---------------------------------------------------------------
-    // 5. "Ship to different address" toggle
-    // ---------------------------------------------------------------
-
-    $( '#cco-ship-to-different' ).on( 'change', function () {
-        const $shipping = $( '#cco-shipping-fields' );
-        if ( $( this ).is( ':checked' ) ) {
-            if ( ! $shipping.children().length ) {
-                // Build shipping fields once.
-                const html = `
-                <h3>Shipping Address</h3>
-                <div class="cco-row">
-                    <div class="cco-field"><label>First Name *</label><input type="text" id="cco-ship-first-name" required></div>
-                    <div class="cco-field"><label>Last Name *</label><input type="text" id="cco-ship-last-name" required></div>
-                </div>
-                <div class="cco-field"><label>Address *</label><input type="text" id="cco-ship-address1" required></div>
-                <div class="cco-field"><label>Apt / Suite</label><input type="text" id="cco-ship-address2"></div>
-                <div class="cco-row">
-                    <div class="cco-field"><label>City *</label><input type="text" id="cco-ship-city" required></div>
-                    <div class="cco-field"><label>Postcode</label><input type="text" id="cco-ship-postcode"></div>
-                </div>
-                <div class="cco-row">
-                    <div class="cco-field"><label>Country *</label><input type="text" id="cco-ship-country" required value="BD"></div>
-                    <div class="cco-field"><label>State</label><input type="text" id="cco-ship-state"></div>
-                </div>`;
-                $shipping.html( html );
-            }
-            $shipping.slideDown();
-        } else {
-            $shipping.slideUp();
         }
     } );
 
@@ -411,6 +262,7 @@
 
     $( function () {
         loadCart();
+        startTimer( 300 ); // 5 minutes
     } );
 
 } )( jQuery );
