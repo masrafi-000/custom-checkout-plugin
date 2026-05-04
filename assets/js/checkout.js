@@ -118,13 +118,13 @@
 
         const rows = items.map( item => `
             <div class="cco-cart-item" data-key="${item.key}">
-                <img src="${item.image}" alt="${item.name}" class="cco-cart-item__img">
+                <div class="cco-cart-item__img-wrapper">
+                    <img src="${item.image}" alt="${item.name}" class="cco-cart-item__img">
+                    <span class="cco-cart-item__qty-badge">${item.quantity}</span>
+                </div>
                 <div class="cco-cart-item__info">
                     <span class="cco-cart-item__name">${item.name}</span>
-                    <div class="cco-cart-item__controls">
-                       <span class="cco-item-qty-label">Qty: ${item.quantity}</span>
-                       <button type="button" class="cco-item-remove" title="Remove Item">✕</button>
-                    </div>
+                    <span class="cco-cart-item__variant">${item.name}</span>
                 </div>
                 <span class="cco-cart-item__total">${fmt( item.line_total )}</span>
             </div>
@@ -136,15 +136,15 @@
     function renderCartTotals( data ) {
         let html = `
             <div class="cco-totals-row">
-                <span>${ 'Subtotal' }</span>
-                <span>${fmt( data.subtotal )}</span>
+                <span>Subtotal - ${data.item_count} items</span>
+                <span class="cco-weight-bold">${fmt( data.subtotal )}</span>
             </div>`;
 
         if ( data.discount_total > 0 ) {
             html += `
             <div class="cco-totals-row cco-totals-row--discount">
                 <span>Discount</span>
-                <span>−${fmt( data.discount_total )}</span>
+                <span class="cco-weight-bold">−${fmt( data.discount_total )}</span>
             </div>`;
             
             if ( data.coupons && data.coupons.length ) {
@@ -156,38 +156,26 @@
             }
         }
 
-        if ( data.needs_shipping ) {
-            html += `<div class="cco-shipping-block">
-                <h4>Shipping</h4>
-                <div class="cco-shipping-rates">`;
-            
-            if ( data.shipping_rates.length ) {
-                data.shipping_rates.forEach( rate => {
-                    html += `
-                        <label class="cco-shipping-option">
-                            <input type="radio" name="cco_shipping_method" value="${rate.id}" ${rate.selected ? 'checked' : ''}>
-                            <span>${rate.label}: ${fmt( rate.cost )}</span>
-                        </label>`;
-                } );
-            } else {
-                html += `<p class="cco-small">Enter your address to see shipping rates.</p>`;
-            }
-            
-            html += `</div></div>`;
-        }
+        // Shipping
+        html += `
+        <div class="cco-totals-row">
+            <span>Shipping</span>
+            <span>${ data.shipping_total > 0 ? fmt(data.shipping_total) : 'Free' }</span>
+        </div>`;
 
-        if ( data.tax_total > 0 ) {
-            html += `
-            <div class="cco-totals-row">
-                <span>Tax</span>
-                <span>${fmt( data.tax_total )}</span>
-            </div>`;
-        }
+
+        html += `
+        <div class="cco-totals-row">
+            <span>Estimated taxes</span>
+            <span>${fmt( data.tax_total )}</span>
+        </div>`;
 
         html += `
             <div class="cco-totals-row cco-totals-row--total">
-                <span>Total</span>
-                <span>${fmt( data.total )}</span>
+                <span class="cco-total-label">Total</span>
+                <span class="cco-total-price">
+                    <small class="cco-currency-code">AUD</small> ${fmt( data.total )}
+                </span>
             </div>`;
 
         $( '#cco-cart-totals' ).html( html );
@@ -325,34 +313,7 @@
         syncAddress();
     } );
 
-    // Handle shipping rate selection
-    $( document ).on( 'change', 'input[name="cco_shipping_method"]', async function() {
-        const rate_id = $( this ).val();
-        try {
-            $( '.cco-summary-section' ).addClass( 'cco-is-loading' );
-            await apiCall( `${storeApiBase}/cart/select-shipping-rate`, {
-                method: 'POST',
-                body: JSON.stringify( { id: rate_id } )
-            } );
-            await loadCart();
-        } catch ( e ) {
-            console.error('Failed to select shipping rate', e);
-        }
-    } );
 
-    // Handle cart item removal
-    $( document ).on( 'click', '.cco-item-remove', async function() {
-        const key = $( this ).closest( '.cco-cart-item' ).data( 'key' );
-        try {
-            $( '.cco-summary-section' ).addClass( 'cco-is-loading' );
-            await apiCall( `${storeApiBase}/cart/items/${key}`, {
-                method: 'DELETE'
-            } );
-            await loadCart();
-        } catch ( e ) {
-            console.error('Failed to remove item', e);
-        }
-    } );
 
     // Handle quantity changes (debounced)
     const updateQuantity = debounce( async function( key, quantity ) {

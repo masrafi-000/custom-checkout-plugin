@@ -162,7 +162,8 @@ if ( WC()->cart->is_empty() ) {
         <!-- RIGHT: ORDER SUMMARY -->
         <aside class="cco-summary-section">
             <div class="cco-block">
-                <h2><?php esc_html_e( 'Order Summary', 'custom-checkout' ); ?></h2>
+                <h2><?php esc_html_e( 'Order summary', 'custom-checkout' ); ?></h2>
+                <p class="cco-subtitle"><?php esc_html_e( 'Review your items and total before completing your purchase.', 'custom-checkout' ); ?></p>
 
                 <div id="cco-cart-items" class="cco-cart-items">
                     <p class="cco-loading"><?php esc_html_e( 'Loading cart…', 'custom-checkout' ); ?></p>
@@ -170,7 +171,7 @@ if ( WC()->cart->is_empty() ) {
 
                 <!-- Coupon -->
                 <div class="cco-coupon-row">
-                    <input type="text" id="cco-coupon-input" placeholder="<?php esc_attr_e( 'Coupon code', 'custom-checkout' ); ?>">
+                    <input type="text" id="cco-coupon-input" placeholder="<?php esc_attr_e( 'Discount code', 'custom-checkout' ); ?>">
                     <button type="button" id="cco-apply-coupon" class="cco-btn-secondary">
                         <?php esc_html_e( 'Apply', 'custom-checkout' ); ?>
                     </button>
