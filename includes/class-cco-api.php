@@ -49,8 +49,31 @@ class CCO_API {
     // ------------------------------------------------------------------
 
     public static function get_cart_summary( WP_REST_Request $request ): WP_REST_Response {
-        WC()->cart->calculate_totals();
+        // Ensure WooCommerce cart is initialized.
+        if ( is_null( WC()->cart ) ) {
+            if ( ! function_exists( 'wc_load_cart' ) ) {
+                include_once WC_ABSPATH . 'includes/wc-cart-functions.php';
+            }
+            wc_load_cart();
+        }
+
+        // Ensure session is loaded from cookie.
+        if ( ! is_null( WC()->session ) && ! WC()->session->has_session() ) {
+            WC()->session->init_session_cookie();
+        }
+
+        if ( ! is_null( WC()->cart ) ) {
+            if ( 0 === WC()->cart->get_cart_contents_count() ) {
+                WC()->cart->get_cart_from_session();
+            }
+            WC()->cart->calculate_totals();
+        }
+
         $cart = WC()->cart;
+
+        if ( is_null( $cart ) ) {
+            return new WP_REST_Response( [ 'message' => 'Could not initialize WooCommerce cart.' ], 500 );
+        }
 
         $items = [];
         foreach ( $cart->get_cart() as $item_key => $item ) {
@@ -66,6 +89,28 @@ class CCO_API {
             ];
         }
 
+        // Shipping rates.
+        $shipping_rates = [];
+        if ( $cart->needs_shipping() ) {
+            // Ensure shipping is calculated.
+            $packages = $cart->get_shipping_packages();
+            WC()->shipping()->calculate_shipping( $packages );
+            
+            $shipping_packages = WC()->shipping()->get_packages();
+            foreach ( $shipping_packages as $i => $package ) {
+                if ( isset( $package['rates'] ) ) {
+                    foreach ( $package['rates'] as $rate_id => $rate ) {
+                        $shipping_rates[] = [
+                            'id'      => $rate_id,
+                            'label'   => $rate->get_label(),
+                            'cost'    => (float) $rate->get_cost(),
+                            'selected'=> ( $rate_id === current( $cart->get_shipping_methods() ) ),
+                        ];
+                    }
+                }
+            }
+        }
+
         return new WP_REST_Response( [
             'items'              => $items,
             'subtotal'           => (float) $cart->get_subtotal(),
@@ -75,6 +120,7 @@ class CCO_API {
             'total'              => (float) $cart->get_total( 'edit' ),
             'currency_symbol'    => get_woocommerce_currency_symbol(),
             'needs_shipping'     => $cart->needs_shipping(),
+            'shipping_rates'     => $shipping_rates,
             'coupons'            => $cart->get_applied_coupons(),
             'item_count'         => $cart->get_cart_contents_count(),
         ], 200 );

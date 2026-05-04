@@ -18,6 +18,11 @@ define( 'CCO_PLUGIN_FILE', __FILE__ );
 define( 'CCO_PLUGIN_DIR',  plugin_dir_path( __FILE__ ) );
 define( 'CCO_PLUGIN_URL',  plugin_dir_url( __FILE__ ) );
 
+require_once CCO_PLUGIN_DIR . 'includes/class-cco-page.php';
+require_once CCO_PLUGIN_DIR . 'includes/class-cco-assets.php';
+require_once CCO_PLUGIN_DIR . 'includes/class-cco-api.php';
+require_once CCO_PLUGIN_DIR . 'includes/class-cco-admin.php';
+
 /**
  * Boot the plugin after WooCommerce is loaded.
  */
@@ -32,11 +37,8 @@ add_action( 'plugins_loaded', function () {
         return;
     }
 
-    require_once CCO_PLUGIN_DIR . 'includes/class-cco-page.php';
-    require_once CCO_PLUGIN_DIR . 'includes/class-cco-assets.php';
+    // This class extends WC_Payment_Gateway, so it MUST be loaded after WooCommerce.
     require_once CCO_PLUGIN_DIR . 'includes/class-cco-payment-gateway.php';
-    require_once CCO_PLUGIN_DIR . 'includes/class-cco-api.php';
-    require_once CCO_PLUGIN_DIR . 'includes/class-cco-admin.php';
 
     CCO_Page::init();
     CCO_Assets::init();

@@ -218,35 +218,80 @@ select.cco-field--error { border-color: #ef4444; }
 .cco-cart-item__qty  { font-size: 12px; color: #888; }
 .cco-cart-item__total { font-size: 14px; font-weight: 600; white-space: nowrap; }
 
-/* ── Coupon ── */
-.cco-coupon-row {
+.cco-cart-item__controls {
     display: flex;
-    gap: 10px;
-    margin-bottom: 16px;
+    align-items: center;
+    gap: 8px;
+    margin-top: 4px;
 }
-.cco-coupon-row input {
-    flex: 1;
-    padding: 10px 14px;
-    border: 1.5px solid #dde2ec;
-    border-radius: 8px;
+.cco-item-qty {
+    width: 45px;
+    padding: 2px 4px;
+    border: 1px solid #dde2ec;
+    border-radius: 4px;
+    font-size: 12px;
+}
+.cco-item-remove {
+    background: none;
+    border: none;
+    color: #ef4444;
+    cursor: pointer;
     font-size: 14px;
+    padding: 0;
+    line-height: 1;
 }
+.cco-item-remove:hover { color: #991b1b; }
 
-/* ── Totals ── */
-.cco-cart-totals { border-top: 1px solid #eee; padding-top: 12px; }
-.cco-totals-row {
-    display: flex;
-    justify-content: space-between;
+/* ── Shipping Selection ── */
+.cco-shipping-block {
+    margin: 12px 0;
+    padding: 12px 0;
+    border-top: 1px solid #f0f0f0;
+}
+.cco-shipping-block h4 {
+    margin: 0 0 8px;
     font-size: 14px;
-    padding: 5px 0;
-    color: #555;
+    font-weight: 600;
 }
-.cco-totals-row--discount { color: #16a34a; }
-.cco-totals-row--total {
-    font-size: 17px;
-    font-weight: 700;
-    color: #1a1a2e;
-    padding-top: 10px;
-    border-top: 1px solid #eee;
-    margin-top: 6px;
+.cco-shipping-rates {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
 }
+.cco-shipping-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    cursor: pointer;
+}
+.cco-shipping-option input { margin: 0; }
+.cco-small { font-size: 12px; color: #888; }
+
+.cco-applied-coupons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 4px;
+}
+.cco-coupon-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #f0fdf4;
+    border: 1px solid #86efac;
+    color: #166534;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+}
+.cco-remove-coupon {
+    background: none;
+    border: none;
+    color: #166534;
+    cursor: pointer;
+    padding: 0;
+    font-size: 12px;
+}
+.cco-remove-coupon:hover { color: #064e3b; }

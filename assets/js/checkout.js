@@ -6,7 +6,7 @@
 ( function ( $ ) {
     'use strict';
 
-    const { storeApiBase, apiBase, nonce, ajaxNonce, i18n, currency } = window.CCO || {};
+    const { storeApiBase, apiBase, wpNonce, nonce, ajaxNonce, i18n, currency } = window.CCO || {};
 
     // ---------------------------------------------------------------
     // Helpers
@@ -47,6 +47,9 @@
         try {
             const res  = await fetch( `${apiBase}/cart-summary`, {
                 credentials: 'same-origin',
+                headers: {
+                    'X-WP-Nonce': wpNonce
+                }
             } );
             const data = await res.json();
 
@@ -78,11 +81,14 @@
         }
 
         const rows = items.map( item => `
-            <div class="cco-cart-item">
+            <div class="cco-cart-item" data-key="${item.key}">
                 <img src="${item.image}" alt="${item.name}" class="cco-cart-item__img">
                 <div class="cco-cart-item__info">
                     <span class="cco-cart-item__name">${item.name}</span>
-                    <span class="cco-cart-item__qty">× ${item.quantity}</span>
+                    <div class="cco-cart-item__controls">
+                        <input type="number" class="cco-item-qty" value="${item.quantity}" min="1" step="1">
+                        <button type="button" class="cco-item-remove" title="Remove">✕</button>
+                    </div>
                 </div>
                 <span class="cco-cart-item__total">${fmt( item.line_total )}</span>
             </div>
@@ -104,14 +110,34 @@
                 <span>Discount</span>
                 <span>−${fmt( data.discount_total )}</span>
             </div>`;
+            
+            if ( data.coupons && data.coupons.length ) {
+                html += `<div class="cco-applied-coupons">`;
+                data.coupons.forEach( code => {
+                    html += `<span class="cco-coupon-tag">${code} <button type="button" class="cco-remove-coupon" data-code="${code}">✕</button></span>`;
+                } );
+                html += `</div>`;
+            }
         }
 
-        if ( data.needs_shipping && data.shipping_total >= 0 ) {
-            html += `
-            <div class="cco-totals-row">
-                <span>Shipping</span>
-                <span>${ data.shipping_total > 0 ? fmt( data.shipping_total ) : 'Free' }</span>
-            </div>`;
+        if ( data.needs_shipping ) {
+            html += `<div class="cco-shipping-block">
+                <h4>Shipping</h4>
+                <div class="cco-shipping-rates">`;
+            
+            if ( data.shipping_rates.length ) {
+                data.shipping_rates.forEach( rate => {
+                    html += `
+                        <label class="cco-shipping-option">
+                            <input type="radio" name="cco_shipping_method" value="${rate.id}" ${rate.selected ? 'checked' : ''}>
+                            <span>${rate.label}: ${fmt( rate.cost )}</span>
+                        </label>`;
+                } );
+            } else {
+                html += `<p class="cco-small">Enter your address to see shipping rates.</p>`;
+            }
+            
+            html += `</div></div>`;
         }
 
         if ( data.tax_total > 0 ) {
@@ -160,6 +186,22 @@
 
         } catch ( err ) {
             showNotice( 'Error applying coupon.' );
+        }
+    } );
+
+    // Handle coupon removal
+    $( document ).on( 'click', '.cco-remove-coupon', async function() {
+        const code = $( this ).data( 'code' );
+        try {
+            await fetch( `${storeApiBase}/cart/remove-coupon`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: headers(),
+                body: JSON.stringify( { code } )
+            } );
+            await loadCart();
+        } catch ( e ) {
+            console.error('Failed to remove coupon', e);
         }
     } );
 
@@ -221,6 +263,76 @@
 
     $( '.cco-form-section input, .cco-form-section select' ).on( 'input change', function () {
         $( this ).removeClass( 'cco-field--error' );
+    } );
+
+    // Sync address with Store API on blur to recalculate shipping/taxes
+    $( '.cco-form-section input, .cco-form-section select' ).on( 'blur change', async function() {
+        if ( $(this).closest('.cco-shipping-address').length && !$( '#cco-ship-to-different' ).is( ':checked' ) ) return;
+        
+        const payload = {
+            billing_address: collectAddress(''),
+            shipping_address: collectShippingAddress()
+        };
+
+        try {
+            await fetch( `${storeApiBase}/cart/update-customer`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: headers(),
+                body: JSON.stringify( payload )
+            } );
+            await loadCart();
+        } catch ( e ) {
+            console.error('Failed to sync customer data', e);
+        }
+    } );
+
+    // Handle shipping rate selection
+    $( document ).on( 'change', 'input[name="cco_shipping_method"]', async function() {
+        const rate_id = $( this ).val();
+        try {
+            await fetch( `${storeApiBase}/cart/select-shipping-rate`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: headers(),
+                body: JSON.stringify( { id: rate_id } )
+            } );
+            await loadCart();
+        } catch ( e ) {
+            console.error('Failed to select shipping rate', e);
+        }
+    } );
+
+    // Handle cart item removal
+    $( document ).on( 'click', '.cco-item-remove', async function() {
+        const key = $( this ).closest( '.cco-cart-item' ).data( 'key' );
+        try {
+            await fetch( `${storeApiBase}/cart/items/${key}`, {
+                method: 'DELETE',
+                credentials: 'same-origin',
+                headers: headers()
+            } );
+            await loadCart();
+        } catch ( e ) {
+            console.error('Failed to remove item', e);
+        }
+    } );
+
+    // Handle quantity changes
+    $( document ).on( 'change', '.cco-item-qty', async function() {
+        const key = $( this ).closest( '.cco-cart-item' ).data( 'key' );
+        const quantity = $( this ).val();
+        try {
+            await fetch( `${storeApiBase}/cart/items/${key}`, {
+                method: 'PUT',
+                credentials: 'same-origin',
+                headers: headers(),
+                body: JSON.stringify( { quantity: parseInt(quantity) } )
+            } );
+            await loadCart();
+        } catch ( e ) {
+            console.error('Failed to update quantity', e);
+        }
     } );
 
     // ---------------------------------------------------------------

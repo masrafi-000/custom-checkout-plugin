@@ -40,6 +40,7 @@ class CCO_Assets {
         wp_localize_script( 'cco-checkout', 'CCO', [
             'storeApiBase' => esc_url( home_url( '/wp-json/wc/store/v1' ) ),
             'apiBase'      => esc_url( home_url( '/wp-json/cco/v1' ) ),
+            'wpNonce'      => wp_create_nonce( 'wp_rest' ),          // WP REST API nonce (for cookie auth)
             'nonce'        => wp_create_nonce( 'wc_store_api' ),     // WC Store API nonce
             'ajaxNonce'    => wp_create_nonce( 'cco_ajax' ),         // our own AJAX nonce
             'currency'     => get_woocommerce_currency_symbol(),
