@@ -14,6 +14,7 @@ class CCO_Page {
         add_action( 'init',                  [ __CLASS__, 'register_virtual_page' ] );
         add_filter( 'query_vars',            [ __CLASS__, 'add_query_var' ] );
         add_action( 'template_redirect',     [ __CLASS__, 'render_template' ] );
+        add_action( 'template_redirect',     [ __CLASS__, 'maybe_redirect_to_custom' ], 5 );
         add_filter( 'document_title_parts',  [ __CLASS__, 'set_page_title' ] );
 
         // Redirect default WooCommerce checkout if enabled.
@@ -41,6 +42,30 @@ class CCO_Page {
     }
 
     /**
+     * Redirect standard checkout to custom checkout if enabled.
+     */
+    public static function maybe_redirect_to_custom() {
+        if ( get_option( 'cco_enabled', 'no' ) !== 'yes' ) {
+            return;
+        }
+
+        if ( get_query_var( 'cco_checkout' ) ) {
+            return;
+        }
+
+        // Check if we are on the WooCommerce checkout page.
+        $checkout_page_id = (int) wc_get_page_id( 'checkout' );
+        
+        // Strictly only redirect if it's the actual checkout page ID and not a sub-endpoint.
+        if ( $checkout_page_id > 0 && is_page( $checkout_page_id ) ) {
+            if ( ! is_wc_endpoint_url( 'order-pay' ) && ! is_wc_endpoint_url( 'order-received' ) ) {
+                wp_safe_redirect( self::get_url() );
+                exit;
+            }
+        }
+    }
+
+    /**
      * Intercept the request and render our custom template.
      */
     public static function render_template() {
@@ -51,6 +76,10 @@ class CCO_Page {
         // Ensure WooCommerce session is started.
         if ( WC()->session && ! WC()->session->has_session() ) {
             WC()->session->set_customer_session_cookie( true );
+        }
+
+        if ( ! is_null( WC()->cart ) ) {
+            WC()->cart->calculate_totals();
         }
 
         // Load our template instead of any theme template.

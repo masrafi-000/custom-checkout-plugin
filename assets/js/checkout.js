@@ -14,11 +14,48 @@
 
     const headers = () => ( {
         'Content-Type': 'application/json',
-        'Nonce':        nonce,          // WC Store API nonce header
+        'Nonce':        nonce,
     } );
 
-    const fmt = ( amount ) =>
+    // Attach formatting helper to CCO for potential outside use
+    window.CCO.fmt = ( amount ) =>
         currency + parseFloat( amount ).toFixed( 2 );
+
+    const fmt = window.CCO.fmt;
+
+    // Debounce helper
+    function debounce( func, wait ) {
+        let timeout;
+        return function( ...args ) {
+            clearTimeout( timeout );
+            timeout = setTimeout( () => func.apply( this, args ), wait );
+        };
+    }
+
+    /**
+     * Unified API Caller
+     */
+    async function apiCall( url, options = {} ) {
+        const isStoreApi = url.includes( '/wc/store/v1/' );
+        const fetchOptions = {
+            credentials: 'same-origin',
+            ...options,
+            headers: {
+                ...headers(),
+                ...( ! isStoreApi ? { 'X-WP-Nonce': wpNonce, 'X-CCO-Nonce': ajaxNonce } : {} ),
+                ...( options.headers || {} ),
+            }
+        };
+
+        const res = await fetch( url, fetchOptions );
+        const data = await res.json();
+
+        if ( ! res.ok ) {
+            throw new Error( data.message || 'API Error' );
+        }
+
+        return data;
+    }
 
     function showNotice( msg, type = 'error' ) {
         const $el = $( '#cco-notices' );
@@ -37,6 +74,12 @@
         $btn.prop( 'disabled', loading );
         $btn.find( '.cco-btn-text' ).toggle( ! loading );
         $btn.find( '.cco-btn-spinner' ).toggle( loading );
+        
+        if ( loading ) {
+            $( '.cco-summary-section' ).addClass( 'cco-is-loading' );
+        } else {
+            $( '.cco-summary-section' ).removeClass( 'cco-is-loading' );
+        }
     }
 
     // ---------------------------------------------------------------
@@ -45,30 +88,23 @@
 
     async function loadCart() {
         try {
-            const res  = await fetch( `${apiBase}/cart-summary`, {
-                credentials: 'same-origin',
-                headers: {
-                    'X-WP-Nonce': wpNonce
-                }
-            } );
-            const data = await res.json();
-
-            if ( ! res.ok ) {
-                showNotice( data.message || 'Could not load cart.' );
-                return;
-            }
+            const data = await apiCall( `${apiBase}/cart-summary` );
 
             renderCartItems( data.items );
             renderCartTotals( data );
 
-            // Enable Place Order only when cart has items.
             if ( data.item_count > 0 ) {
                 $( '#cco-place-order' ).prop( 'disabled', false );
+            } else {
+                // If cart became empty via AJAX updates, redirect to shop
+                window.location.href = window.location.origin + window.location.pathname.replace(/\/[^/]+\/?$/, '/shop/');
             }
 
         } catch ( err ) {
-            showNotice( 'Network error loading cart.' );
+            showNotice( 'Error loading cart data.' );
             console.error( err );
+        } finally {
+            $( '.cco-summary-section' ).removeClass( 'cco-is-loading' );
         }
     }
 
@@ -86,8 +122,8 @@
                 <div class="cco-cart-item__info">
                     <span class="cco-cart-item__name">${item.name}</span>
                     <div class="cco-cart-item__controls">
-                        <input type="number" class="cco-item-qty" value="${item.quantity}" min="1" step="1">
-                        <button type="button" class="cco-item-remove" title="Remove">✕</button>
+                       <span class="cco-item-qty-label">Qty: ${item.quantity}</span>
+                       <button type="button" class="cco-item-remove" title="Remove Item">✕</button>
                     </div>
                 </div>
                 <span class="cco-cart-item__total">${fmt( item.line_total )}</span>
@@ -265,36 +301,37 @@
         $( this ).removeClass( 'cco-field--error' );
     } );
 
-    // Sync address with Store API on blur to recalculate shipping/taxes
-    $( '.cco-form-section input, .cco-form-section select' ).on( 'blur change', async function() {
-        if ( $(this).closest('.cco-shipping-address').length && !$( '#cco-ship-to-different' ).is( ':checked' ) ) return;
-        
+    // Debounced address sync
+    const syncAddress = debounce( async function() {
         const payload = {
             billing_address: collectAddress(''),
             shipping_address: collectShippingAddress()
         };
 
         try {
-            await fetch( `${storeApiBase}/cart/update-customer`, {
+            $( '.cco-summary-section' ).addClass( 'cco-is-loading' );
+            await apiCall( `${storeApiBase}/cart/update-customer`, {
                 method: 'POST',
-                credentials: 'same-origin',
-                headers: headers(),
                 body: JSON.stringify( payload )
             } );
             await loadCart();
         } catch ( e ) {
             console.error('Failed to sync customer data', e);
         }
+    }, 500 );
+
+    $( '.cco-form-section input, .cco-form-section select' ).on( 'input change blur', function() {
+        if ( $(this).closest('.cco-shipping-address').length && !$( '#cco-ship-to-different' ).is( ':checked' ) ) return;
+        syncAddress();
     } );
 
     // Handle shipping rate selection
     $( document ).on( 'change', 'input[name="cco_shipping_method"]', async function() {
         const rate_id = $( this ).val();
         try {
-            await fetch( `${storeApiBase}/cart/select-shipping-rate`, {
+            $( '.cco-summary-section' ).addClass( 'cco-is-loading' );
+            await apiCall( `${storeApiBase}/cart/select-shipping-rate`, {
                 method: 'POST',
-                credentials: 'same-origin',
-                headers: headers(),
                 body: JSON.stringify( { id: rate_id } )
             } );
             await loadCart();
@@ -307,10 +344,9 @@
     $( document ).on( 'click', '.cco-item-remove', async function() {
         const key = $( this ).closest( '.cco-cart-item' ).data( 'key' );
         try {
-            await fetch( `${storeApiBase}/cart/items/${key}`, {
-                method: 'DELETE',
-                credentials: 'same-origin',
-                headers: headers()
+            $( '.cco-summary-section' ).addClass( 'cco-is-loading' );
+            await apiCall( `${storeApiBase}/cart/items/${key}`, {
+                method: 'DELETE'
             } );
             await loadCart();
         } catch ( e ) {
@@ -318,21 +354,25 @@
         }
     } );
 
-    // Handle quantity changes
-    $( document ).on( 'change', '.cco-item-qty', async function() {
-        const key = $( this ).closest( '.cco-cart-item' ).data( 'key' );
-        const quantity = $( this ).val();
+    // Handle quantity changes (debounced)
+    const updateQuantity = debounce( async function( key, quantity ) {
         try {
-            await fetch( `${storeApiBase}/cart/items/${key}`, {
+            $( '.cco-summary-section' ).addClass( 'cco-is-loading' );
+            await apiCall( `${storeApiBase}/cart/items/${key}`, {
                 method: 'PUT',
-                credentials: 'same-origin',
-                headers: headers(),
                 body: JSON.stringify( { quantity: parseInt(quantity) } )
             } );
             await loadCart();
         } catch ( e ) {
-            console.error('Failed to update quantity', e);
+            showNotice( e.message || 'Failed to update quantity.' );
         }
+    }, 300 );
+
+    $( document ).on( 'change input', '.cco-item-qty', function() {
+        const key = $( this ).closest( '.cco-cart-item' ).data( 'key' );
+        const quantity = $( this ).val();
+        if ( quantity < 1 ) return;
+        updateQuantity( key, quantity );
     } );
 
     // ---------------------------------------------------------------
@@ -353,29 +393,15 @@
             billing:      collectAddress( '' ),
             shipping:     collectShippingAddress(),
             order_note:   $( '#cco-order-note' ).val(),
-            payment_data: {}, // Attach extra payment fields here (token, etc.)
+            payment_data: {}, 
         };
 
         try {
-            const res  = await fetch( `${apiBase}/place-order`, {
-                method:      'POST',
-                credentials: 'same-origin',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CCO-Nonce':  ajaxNonce,
-                },
-                body: JSON.stringify( payload ),
+            const data = await apiCall( `${apiBase}/place-order`, {
+                method: 'POST',
+                body:   JSON.stringify( payload ),
             } );
 
-            const data = await res.json();
-
-            if ( ! res.ok ) {
-                showNotice( data.message || i18n.order_failed );
-                setLoading( false );
-                return;
-            }
-
-            // Redirect to WC thank-you / payment page.
             window.location.href = data.redirect_url;
 
         } catch ( err ) {

@@ -295,3 +295,28 @@ select.cco-field--error { border-color: #ef4444; }
     font-size: 12px;
 }
 .cco-remove-coupon:hover { color: #064e3b; }
+
+/* ── Loading State ── */
+.cco-is-loading {
+    position: relative;
+    pointer-events: none;
+}
+.cco-is-loading::after {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(255,255,255,0.5);
+    z-index: 10;
+    border-radius: 12px;
+}
+
+/* ── Hide Distractions (Floating Carts) ── */
+.fk-cart-icon,
+#fk-cart-icon,
+.fk-side-cart,
+.fkcart-toggler,
+#fkcart-floating-toggler,
+.funnelkit-cart-container,
+#funnelkit-cart-container {
+    display: none !important;
+}
