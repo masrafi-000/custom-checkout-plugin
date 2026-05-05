@@ -159,8 +159,10 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
         $body = json_decode( wp_remote_retrieve_body( $response ) );
 
         if ( isset($body->status) && $body->status == 'approved' ) {
+            $order->set_transaction_id( $body->transaction_id );
             $order->payment_complete();
             $order->add_order_note( 'Bankful payment successful. Transaction ID: ' . $body->transaction_id );
+            $order->save();
 
             WC()->cart->empty_cart();
 
