@@ -247,10 +247,12 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
         }
 
         // Payment failed or was rejected.
-        $error_msg = $body_obj['message'] ?? $body_obj['error'] ?? $body_obj['error_message'] ?? $body_obj['response_text'] ?? '';
+        $error_msg = $body_obj['message'] ?? $body_obj['error'] ?? $body_obj['error_message'] ?? $body_obj['response_text'] ?? $body_obj['response_msg'] ?? $body_obj['reason'] ?? $body_obj['desc'] ?? '';
         
         if ( empty( $error_msg ) ) {
-            $error_msg = 'Payment rejected by provider (HTTP ' . $http_code . ').';
+            // If we can't find a specific error field, show the raw response (truncated for safety) to see what's happening.
+            $clean_body = strip_tags( $response_body );
+            $error_msg  = 'Payment rejected (HTTP ' . $http_code . '). Response: ' . substr( $clean_body, 0, 200 );
         }
 
         error_log( 'Bankful Payment Failed: ' . $error_msg );
