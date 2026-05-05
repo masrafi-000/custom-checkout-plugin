@@ -78,6 +78,20 @@ class CCO_API {
             'permission_callback' => [ __CLASS__, 'verify_nonce' ],
             'args'                => self::place_order_args(),
         ] );
+
+        // GET available shipping methods
+        register_rest_route( 'cco/v1', '/shipping-methods', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => [ __CLASS__, 'get_shipping_methods' ],
+            'permission_callback' => '__return_true',
+        ] );
+
+        // POST select shipping method
+        register_rest_route( 'cco/v1', '/update-shipping', [
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => [ __CLASS__, 'update_shipping_method' ],
+            'permission_callback' => '__return_true',
+        ] );
     }
 
     // ------------------------------------------------------------------
@@ -348,6 +362,7 @@ class CCO_API {
         if ( $response->is_error() ) {
             return new WP_REST_Response( [
                 'message' => $data['message'] ?? 'Order failed.',
+                'code'    => $data['code'] ?? 'api_error',
                 'data'    => $data,
             ], $response->get_status() );
         }
@@ -362,6 +377,53 @@ class CCO_API {
 
     // ------------------------------------------------------------------
     // Helpers
+    // ------------------------------------------------------------------
+    // GET /cco/v1/shipping-methods
+    // ------------------------------------------------------------------
+
+    public static function get_shipping_methods( WP_REST_Request $request ): WP_REST_Response {
+        // Ensure session is initialized.
+        if ( ! is_null( WC()->session ) && ! WC()->session->has_session() ) {
+            WC()->session->init_session_cookie();
+        }
+
+        $store_request = new WP_REST_Request( 'GET', '/wc/store/v1/cart/shipping-rates' );
+        $response = rest_do_request( $store_request );
+        $data     = rest_get_server()->response_to_data( $response, false );
+        
+        if ( $response->is_error() ) {
+            return new WP_REST_Response( [
+                'message' => $data['message'] ?? 'Could not load shipping methods.',
+                'code'    => $data['code'] ?? 'shipping_error',
+                'data'    => $data
+            ], $response->get_status() );
+        }
+
+        return new WP_REST_Response( $data, 200 );
+    }
+
+    // ------------------------------------------------------------------
+    // POST /cco/v1/update-shipping
+    // ------------------------------------------------------------------
+
+    public static function update_shipping_method( WP_REST_Request $request ): WP_REST_Response {
+        $body = $request->get_json_params();
+        $rate_id = sanitize_text_field( $body['rate_id'] ?? '' );
+
+        if ( empty( $rate_id ) ) {
+            return new WP_REST_Response( [ 'message' => 'Rate ID is required.' ], 400 );
+        }
+
+        $store_request = new WP_REST_Request( 'POST', '/wc/store/v1/cart/select-shipping-rate' );
+        $store_request->set_body( wp_json_encode( [ 'rate_id' => $rate_id ] ) );
+        $store_request->set_header( 'Content-Type', 'application/json' );
+
+        $response = rest_do_request( $store_request );
+        $data     = rest_get_server()->response_to_data( $response, false );
+
+        return new WP_REST_Response( $data, $response->get_status() );
+    }
+
     // ------------------------------------------------------------------
 
     private static function sanitize_address( array $addr ): array {

@@ -180,15 +180,17 @@ if ( WC()->cart->is_empty() ) {
                 <section class="cco-section">
                     <h3>Shipping method</h3>
                     <p class="cco-section-desc">Choose how you'd like to receive your order.</p>
-                    <div class="cco-shipping-method-card">
-                        <div class="cco-method-info">
-                            <input type="radio" checked>
-                            <div class="cco-method-text">
-                                <strong>Express Shipping (Australia)</strong>
-                                <span>Tracked delivery around 1-2 business days</span>
-                            </div>
+                    <div id="cco-shipping-methods">
+                        <div class="cco-shipping-method-card cco-is-selected">
+                            <label class="cco-method-info">
+                                <input type="radio" name="shipping_method_static" value="express" checked>
+                                <div class="cco-method-text">
+                                    <strong>Express Shipping (Australia)</strong>
+                                    <span>Tracked delivery around 1-2 business days</span>
+                                </div>
+                            </label>
+                            <div class="cco-method-price">Free</div>
                         </div>
-                        <div class="cco-method-price">Free</div>
                     </div>
                 </section>
 

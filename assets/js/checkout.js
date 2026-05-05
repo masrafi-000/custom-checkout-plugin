@@ -45,7 +45,9 @@
         const data = await res.json();
 
         if ( ! res.ok ) {
-            throw new Error( data.message || 'API Error' );
+            const error = new Error( data.message || 'API Error' );
+            error.response = data;
+            throw error;
         }
 
         return data;
@@ -247,6 +249,7 @@
         console.log( 'Cart Summary Loaded. Total Price: ', data.total );
     }
 
+
     /**
      * Handle Mobile Summary Toggle
      */
@@ -441,6 +444,31 @@
     $( '#cco-place-order' ).on( 'click', async function () {
         clearNotice();
         setLoading( true );
+        
+        const billing = collectAddress();
+        const requiredFields = {
+            'cco-first-name': 'First name',
+            'cco-last-name':  'Last name',
+            'cco-email':      'Email address',
+            'cco-address1':   'Address',
+            'cco-city':       'City',
+            'cco-state':      'State / Province',
+            'cco-postcode':   'ZIP / Postcode',
+            'cco-phone':      'Phone number'
+        };
+
+        let missing = [];
+        for ( const [ id, label ] of Object.entries( requiredFields ) ) {
+            if ( ! $( `#${id}` ).val().trim() ) {
+                missing.push( label );
+            }
+        }
+
+        if ( missing.length > 0 ) {
+            showNotice( 'Please fill in the required fields: ' + missing.join( ', ' ) );
+            setLoading( false );
+            return;
+        }
 
         const paymentMethod = $( 'input[name="payment_method"]:checked' ).val();
         const payload = {
@@ -466,6 +494,10 @@
             } );
             window.location.href = data.redirect_url;
         } catch ( err ) {
+            console.error( 'Checkout Failed:', err );
+            if ( err.response && err.response.data && err.response.data.errors ) {
+                console.table( err.response.data.errors );
+            }
             showNotice( err.message || 'Order failed. Please check your details.' );
             setLoading( false );
         }
