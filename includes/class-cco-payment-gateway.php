@@ -22,7 +22,8 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
         $this->title       = $this->get_option( 'title', 'Credit Card (Bankful)' );
         $this->description = $this->get_option( 'description' );
         $this->api_key     = $this->get_option( 'api_key' );
-        $this->api_password = $this->get_option( 'api_password' );
+        $this->secret_key  = $this->get_option( 'secret_key' );
+        $this->test_mode   = 'yes' === $this->get_option( 'test_mode' );
 
         add_action(
             'woocommerce_update_options_payment_gateways_' . $this->id,
@@ -38,6 +39,12 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
                 'label'   => __( 'Enable Bankful Payment', 'custom-checkout' ),
                 'default' => 'yes',
             ],
+            'test_mode'   => [
+                'title'   => __( 'Test Mode', 'custom-checkout' ),
+                'type'    => 'checkbox',
+                'label'   => __( 'Enable Sandbox/Test Mode', 'custom-checkout' ),
+                'default' => 'no',
+            ],
             'title'       => [
                 'title'   => __( 'Title', 'custom-checkout' ),
                 'type'    => 'text',
@@ -49,14 +56,18 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
                 'default' => __( 'Pay securely via your credit card.', 'custom-checkout' ),
             ],
             'api_key'     => [
-                'title'       => __( 'API Key/Username', 'custom-checkout' ),
+                'title'       => __( 'API Key', 'custom-checkout' ),
                 'type'        => 'text',
+                'description' => __( 'Your Bankful API Key.', 'custom-checkout' ),
                 'default'     => '',
+                'desc_tip'    => true,
             ],
-            'api_password' => [
-                'title'       => __( 'API Password', 'custom-checkout' ),
+            'secret_key' => [
+                'title'       => __( 'Secret Key', 'custom-checkout' ),
                 'type'        => 'password',
+                'description' => __( 'Your Bankful Secret Key.', 'custom-checkout' ),
                 'default'     => '',
+                'desc_tip'    => true,
             ],
         ];
     }
@@ -111,7 +122,9 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
             return [ 'result' => 'failure' ];
         }
 
-        $api_url = 'https://api.bankful.com/v1/transaction';
+        $api_url = $this->test_mode 
+            ? 'https://api.sandbox.bankful.com/v1/transaction' 
+            : 'https://api.bankful.com/v1/transaction';
 
         $payload = array(
             'amount'          => $order->get_total(),
@@ -131,7 +144,7 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
         $response = wp_remote_post( $api_url, array(
             'method'    => 'POST',
             'headers'   => array(
-                'Authorization' => 'Basic ' . base64_encode( $this->api_key . ':' . $this->api_password ),
+                'Authorization' => 'Basic ' . base64_encode( $this->api_key . ':' . $this->secret_key ),
                 'Content-Type'  => 'application/json',
             ),
             'body'      => json_encode( $payload ),
