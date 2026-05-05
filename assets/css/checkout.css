@@ -485,7 +485,7 @@ body.cco-checkout-body {
     flex-shrink: 0 !important;
 }
 
-/* Compound taxes (applied on top of other taxes) get a slight indent */
+/* ── Compound taxes (applied on top of other taxes) get a slight indent ── */
 .cco-tax-compound {
     padding-left: 12px !important;
 }
@@ -493,5 +493,56 @@ body.cco-checkout-body {
     background: var(--cco-text-muted) !important;
     width: 4px !important;
     height: 4px !important;
+}
+
+/* ── Responsive Improvements ── */
+@media (max-width: 768px) {
+    .cco-container { padding: 0 15px !important; }
+    
+    .cco-header-inner {
+        flex-direction: column !important;
+        gap: 15px !important;
+        text-align: center !important;
+    }
+    
+    .cco-logo-img { height: 50px !important; }
+    
+    .cco-main { padding: 25px 0 !important; }
+    
+    .cco-alert-box {
+        flex-direction: column !important;
+        text-align: center !important;
+        gap: 12px !important;
+    }
+    .cco-alert-timer { margin-left: 0 !important; }
+    
+    .cco-row, .cco-row--three {
+        flex-direction: column !important;
+        gap: 0 !important;
+    }
+    .cco-row .cco-field, .cco-row--three .cco-field {
+        margin-bottom: 14px !important;
+    }
+    
+    .cco-coupon-row {
+        flex-direction: column !important;
+    }
+    .cco-coupon-row button {
+        height: 44px !important;
+        width: 100% !important;
+    }
+
+    .cco-summary-card { padding: 20px 15px !important; }
+}
+
+@media (max-width: 480px) {
+    .cco-section h3 { font-size: 16px !important; }
+    .cco-btn-complete { font-size: 16px !important; padding: 14px !important; }
+    
+    .cco-cart-item { gap: 12px !important; }
+    .cco-cart-item__img { width: 50px; height: 50px !important; }
+    
+    .cco-trust-item { gap: 12px !important; }
+    .cco-trust-icon { font-size: 20px !important; }
 }
 
