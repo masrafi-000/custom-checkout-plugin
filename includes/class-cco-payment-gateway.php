@@ -104,6 +104,9 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
      */
     public function process_payment( $order_id ) {
         $order = wc_get_order( $order_id );
+        if ( ! $order ) {
+            return [ 'result' => 'failure' ];
+        }
 
         // Extract payment data from the request.
         // Check global storage first (populated by CCO_API::place_order).
@@ -127,7 +130,26 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
             return [ 'result' => 'failure' ];
         }
 
-        $api_url = $this->test_mode 
+        // ---------------------------------------------------------------
+        // LOCAL DEV BYPASS — skips real API call on localhost/127.0.0.1
+        // This is automatically skipped on any live/staging server.
+        // ---------------------------------------------------------------
+        $host = $_SERVER['HTTP_HOST'] ?? '';
+        if ( in_array( $host, [ 'localhost', '127.0.0.1' ], true ) || str_starts_with( $host, 'localhost:' ) ) {
+            // Simulate a successful payment for local testing.
+            $order->set_transaction_id( 'LOCAL-TEST-' . time() );
+            $order->payment_complete();
+            $order->add_order_note( '[LOCAL TEST] Payment simulated successfully. No real transaction was made.' );
+            $order->save();
+            WC()->cart->empty_cart();
+            return [
+                'result'   => 'success',
+                'redirect' => $this->get_return_url( $order ),
+            ];
+        }
+        // ---------------------------------------------------------------
+
+        $api_url = $this->test_mode
             ? 'https://api.sandbox.bankful.com/v1/transaction' 
             : 'https://api.bankful.com/v1/transaction';
 

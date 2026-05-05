@@ -16,6 +16,8 @@ class CCO_API {
 
     public static function init() {
         add_action( 'rest_api_init', [ __CLASS__, 'register_routes' ] );
+        add_action( 'wp_ajax_cco_place_order', [ __CLASS__, 'ajax_place_order' ] );
+        add_action( 'wp_ajax_nopriv_cco_place_order', [ __CLASS__, 'ajax_place_order' ] );
 
         // Add static 10% GST fee to the cart.
         // This ensures the tax is calculated correctly for both the UI and the final order.
@@ -63,13 +65,13 @@ class CCO_API {
         register_rest_route( 'cco/v1', '/apply-coupon', [
             'methods'             => WP_REST_Server::CREATABLE,
             'callback'            => [ __CLASS__, 'apply_coupon' ],
-            'permission_callback' => '__return_true',
+            'permission_callback' => [ __CLASS__, 'verify_nonce' ],
         ] );
 
         register_rest_route( 'cco/v1', '/remove-coupon', [
             'methods'             => WP_REST_Server::CREATABLE,
             'callback'            => [ __CLASS__, 'remove_coupon' ],
-            'permission_callback' => '__return_true',
+            'permission_callback' => [ __CLASS__, 'verify_nonce' ],
         ] );
 
         register_rest_route( 'cco/v1', '/place-order', [
@@ -90,7 +92,7 @@ class CCO_API {
         register_rest_route( 'cco/v1', '/update-shipping', [
             'methods'             => WP_REST_Server::CREATABLE,
             'callback'            => [ __CLASS__, 'update_shipping_method' ],
-            'permission_callback' => '__return_true',
+            'permission_callback' => [ __CLASS__, 'verify_nonce' ],
         ] );
     }
 
@@ -133,12 +135,16 @@ class CCO_API {
     // ------------------------------------------------------------------
 
     public static function get_cart_summary( WP_REST_Request $request ): WP_REST_Response {
-        // Ensure WooCommerce cart is initialized.
+        // Proactively load WC components.
+        if ( ! is_null( WC()->session ) && ! WC()->session->has_session() ) {
+            WC()->session->init_session_cookie();
+        }
         if ( is_null( WC()->cart ) ) {
-            if ( ! function_exists( 'wc_load_cart' ) ) {
-                include_once WC_ABSPATH . 'includes/wc-cart-functions.php';
-            }
             wc_load_cart();
+        }
+
+        if ( is_null( WC()->cart ) ) {
+            return new WP_REST_Response( [ 'message' => 'Cart not initialized.' ], 400 );
         }
 
         // Ensure session is loaded from cookie.
@@ -341,8 +347,23 @@ class CCO_API {
             return new WP_REST_Response( [ 'message' => 'Empty request body.' ], 400 );
         }
 
-        $billing  = self::sanitize_address( $body['billing'] ?? [] );
-        $shipping = self::sanitize_address( $body['shipping'] ?? $body['billing'] ?? [] );
+        // Proactively load WC components if they are missing in this REST request.
+        if ( ! is_null( WC()->session ) && ! WC()->session->has_session() ) {
+            WC()->session->init_session_cookie();
+        }
+        if ( is_null( WC()->cart ) ) {
+            wc_load_cart();
+        }
+        if ( is_null( WC()->customer ) ) {
+            WC()->customer = new WC_Customer( get_current_user_id(), true );
+        }
+
+        if ( is_null( WC()->cart ) || is_null( WC()->customer ) ) {
+            return new WP_REST_Response( [ 'message' => 'Cart or Customer session not found. Please refresh the page.' ], 400 );
+        }
+
+        $billing  = self::sanitize_billing_address( $body['billing'] ?? [] );
+        $shipping = self::sanitize_shipping_address( $body['shipping'] ?? $body['billing'] ?? [] );
 
         // Sync address to WC session so shipping/tax calculate correctly.
         WC()->customer->set_props( [
@@ -371,10 +392,12 @@ class CCO_API {
         if ( WC()->cart->needs_shipping() ) {
             WC()->cart->calculate_shipping();
             $packages = WC()->cart->get_shipping_packages();
-            $rates    = WC()->shipping()->calculate_shipping_for_package( current( $packages ) );
-            if ( ! empty( $rates['rates'] ) ) {
-                $first_rate = current( $rates['rates'] );
-                WC()->session->set( 'chosen_shipping_methods', [ $first_rate->id ] );
+            if ( ! empty( $packages ) ) {
+                $rates = WC()->shipping()->calculate_shipping_for_package( current( $packages ) );
+                if ( ! empty( $rates['rates'] ) ) {
+                    $first_rate = current( $rates['rates'] );
+                    WC()->session->set( 'chosen_shipping_methods', [ $first_rate->id ]);
+                }
             }
         }
 
@@ -382,46 +405,235 @@ class CCO_API {
 
         // Build payload for WC Store API.
         $payload = [
-            'payment_method'  => sanitize_text_field( $body['payment_method'] ?? 'bankful' ),
-            'billing_address' => $billing,
-            'shipping_address'=> $shipping,
-            'customer_note'   => sanitize_textarea_field( $body['order_note'] ?? '' ),
+            'payment_method'   => sanitize_text_field( $body['payment_method'] ?? 'bankful' ),
+            'billing_address'  => $billing,
+            'shipping_address' => $shipping,
+            'customer_note'    => sanitize_textarea_field( $body['order_note'] ?? '' ),
+            'payment_data'     => [], 
         ];
 
         // Store payment data in a global so our gateway can pick it up 
         // during the internal rest_do_request call.
         $GLOBALS['cco_payment_data'] = $body['payment_data'] ?? [];
 
-        // Internal WC Store API request.
-        $store_request = new WP_REST_Request( 'POST', '/wc/store/v1/checkout' );
-        $store_request->set_header( 'Nonce', wp_create_nonce( 'wc_store_api' ) );
-        $store_request->set_body( wp_json_encode( $payload ) );
-        $store_request->set_header( 'Content-Type', 'application/json' );
-
-        $response = rest_do_request( $store_request );
-        $data     = rest_get_server()->response_to_data( $response, false );
-
-        if ( $response->is_error() ) {
-            return new WP_REST_Response( [
-                'message' => $data['message'] ?? 'Order failed.',
-                'code'    => $data['code'] ?? 'api_error',
-                'data'    => $data,
-            ], $response->get_status() );
-        }
-
-        return new WP_REST_Response( [
-            'order_id'    => $data['order_id'] ?? null,
-            'order_key'   => $data['order_key'] ?? null,
-            'redirect_url'=> $data['payment_result']['redirect_url'] ?? wc_get_endpoint_url( 'order-received', $data['order_id'] ?? '', wc_get_page_permalink( 'checkout' ) ),
-            'status'      => $data['status'] ?? 'pending',
-        ], 200 );
+        return new WP_REST_Response( [ 'message' => 'Use AJAX' ], 400 );
     }
 
-    // ------------------------------------------------------------------
-    // Helpers
-    // ------------------------------------------------------------------
-    // GET /cco/v1/shipping-methods
-    // ------------------------------------------------------------------
+    /**
+     * AJAX Place Order
+     *
+     * Manually creates a WooCommerce order from cart data and processes
+     * payment via the gateway directly — bypasses process_checkout() and
+     * its nonce check entirely.
+     */
+    public static function ajax_place_order() {
+        $json  = file_get_contents( 'php://input' );
+        $body  = json_decode( $json, true ) ?? [];
+        $nonce = $body['nonce'] ?? '';
+
+        if ( ! wp_verify_nonce( $nonce, 'cco_ajax' ) ) {
+            wp_send_json_error( [ 'message' => 'Security check failed. Please refresh the page.' ] );
+        }
+
+        // Ensure WC components are loaded.
+        if ( is_null( WC()->cart ) ) {
+            wc_load_cart();
+        }
+        if ( is_null( WC()->customer ) ) {
+            WC()->customer = new WC_Customer( get_current_user_id(), true );
+        }
+
+        if ( WC()->cart->is_empty() ) {
+            wp_send_json_error( [ 'message' => 'Your cart is empty.' ] );
+        }
+
+        $billing          = $body['billing']  ?? [];
+        $shipping         = $body['shipping'] ?? $billing;
+        $payment_method   = sanitize_text_field( $body['payment_method'] ?? 'bankful' );
+        $order_note       = sanitize_textarea_field( $body['order_note'] ?? '' );
+
+        // --- Sync customer session so totals recalculate correctly ---
+        WC()->customer->set_props( [
+            'billing_first_name'  => sanitize_text_field( $billing['first_name'] ?? '' ),
+            'billing_last_name'   => sanitize_text_field( $billing['last_name']  ?? '' ),
+            'billing_address_1'   => sanitize_text_field( $billing['address_1']  ?? '' ),
+            'billing_city'        => sanitize_text_field( $billing['city']       ?? '' ),
+            'billing_state'       => sanitize_text_field( $billing['state']      ?? '' ),
+            'billing_postcode'    => sanitize_text_field( $billing['postcode']   ?? '' ),
+            'billing_country'     => sanitize_text_field( $billing['country']    ?? '' ),
+            'billing_email'       => sanitize_email(      $billing['email']      ?? '' ),
+            'billing_phone'       => sanitize_text_field( $billing['phone']      ?? '' ),
+            'shipping_first_name' => sanitize_text_field( $shipping['first_name'] ?? '' ),
+            'shipping_last_name'  => sanitize_text_field( $shipping['last_name']  ?? '' ),
+            'shipping_address_1'  => sanitize_text_field( $shipping['address_1']  ?? '' ),
+            'shipping_city'       => sanitize_text_field( $shipping['city']       ?? '' ),
+            'shipping_state'      => sanitize_text_field( $shipping['state']      ?? '' ),
+            'shipping_postcode'   => sanitize_text_field( $shipping['postcode']   ?? '' ),
+            'shipping_country'    => sanitize_text_field( $shipping['country']    ?? '' ),
+        ] );
+        WC()->customer->save();
+
+        // --- Auto-select shipping if needed ---
+        if ( WC()->cart->needs_shipping() ) {
+            WC()->cart->calculate_shipping();
+            $packages = WC()->cart->get_shipping_packages();
+            if ( ! empty( $packages ) ) {
+                $rates = WC()->shipping()->calculate_shipping_for_package( current( $packages ) );
+                if ( ! empty( $rates['rates'] ) ) {
+                    $first_rate = current( $rates['rates'] );
+                    WC()->session->set( 'chosen_shipping_methods', [ $first_rate->id ] );
+                }
+            }
+        }
+
+        WC()->cart->calculate_totals();
+
+        // --- Validate and load payment gateway ---
+        // get_available_payment_gateways() only returns enabled gateways and may
+        // not be fully initialized in the AJAX context. Use a multi-tier lookup.
+        $gateways = WC()->payment_gateways()->get_available_payment_gateways();
+
+        if ( ! isset( $gateways[ $payment_method ] ) ) {
+            // Fallback: check all registered gateways (not just enabled).
+            $all_gateways = WC()->payment_gateways()->payment_gateways();
+            if ( isset( $all_gateways[ $payment_method ] ) ) {
+                $gateways[ $payment_method ] = $all_gateways[ $payment_method ];
+            }
+        }
+
+        if ( ! isset( $gateways[ $payment_method ] ) && $payment_method === 'bankful' && class_exists( 'CCO_Payment_Gateway' ) ) {
+            // Last resort: instantiate our gateway directly.
+            $gateways['bankful'] = new CCO_Payment_Gateway();
+        }
+
+        if ( ! isset( $gateways[ $payment_method ] ) ) {
+            wp_send_json_error( [ 'message' => 'Payment method not available. Please check your payment settings.' ] );
+        }
+
+        // --- Create order ---
+        $order = wc_create_order( [ 'customer_id' => get_current_user_id() ] );
+        if ( is_wp_error( $order ) ) {
+            wp_send_json_error( [ 'message' => 'Could not create order: ' . $order->get_error_message() ] );
+        }
+
+        // Add cart items.
+        foreach ( WC()->cart->get_cart() as $cart_item ) {
+            $order->add_product(
+                $cart_item['data'],
+                $cart_item['quantity'],
+                [
+                    'variation' => $cart_item['variation'] ?? [],
+                    'totals'    => [
+                        'subtotal'     => $cart_item['line_subtotal'],
+                        'subtotal_tax' => $cart_item['line_subtotal_tax'],
+                        'total'        => $cart_item['line_total'],
+                        'tax'          => $cart_item['line_tax'],
+                        'tax_data'     => $cart_item['line_tax_data'],
+                    ],
+                ]
+            );
+        }
+
+        // Add fees (e.g. GST).
+        foreach ( WC()->cart->get_fees() as $fee ) {
+            $item = new WC_Order_Item_Fee();
+            $item->set_name( $fee->name );
+            $item->set_amount( $fee->amount );
+            $item->set_tax_class( $fee->tax_class );
+            $item->set_tax_status( $fee->taxable ? 'taxable' : 'none' );
+            $item->set_total( $fee->amount );
+            $order->add_item( $item );
+        }
+
+        // Add shipping.
+        $chosen_methods = WC()->session->get( 'chosen_shipping_methods', [] );
+        foreach ( WC()->cart->get_shipping_packages() as $pkg_key => $package ) {
+            $rates = WC()->shipping()->calculate_shipping_for_package( $package );
+            $rate_id = $chosen_methods[0] ?? ( ! empty( $rates['rates'] ) ? current( $rates['rates'] )->id : '' );
+            if ( $rate_id && isset( $rates['rates'][ $rate_id ] ) ) {
+                $rate = $rates['rates'][ $rate_id ];
+                $item = new WC_Order_Item_Shipping();
+                $item->set_method_title( $rate->label );
+                $item->set_method_id( $rate->id );
+                $item->set_total( wc_format_decimal( $rate->cost ) );
+                $item->set_taxes( $rate->taxes );
+                $order->add_item( $item );
+            }
+        }
+
+        // Apply coupons.
+        foreach ( WC()->cart->get_applied_coupons() as $code ) {
+            $order->apply_coupon( $code );
+        }
+
+        // Set billing/shipping addresses.
+        $order->set_address( [
+            'first_name' => sanitize_text_field( $billing['first_name'] ?? '' ),
+            'last_name'  => sanitize_text_field( $billing['last_name']  ?? '' ),
+            'address_1'  => sanitize_text_field( $billing['address_1']  ?? '' ),
+            'address_2'  => sanitize_text_field( $billing['address_2']  ?? '' ),
+            'city'       => sanitize_text_field( $billing['city']       ?? '' ),
+            'state'      => sanitize_text_field( $billing['state']      ?? '' ),
+            'postcode'   => sanitize_text_field( $billing['postcode']   ?? '' ),
+            'country'    => sanitize_text_field( $billing['country']    ?? '' ),
+            'email'      => sanitize_email(      $billing['email']      ?? '' ),
+            'phone'      => sanitize_text_field( $billing['phone']      ?? '' ),
+        ], 'billing' );
+
+        $order->set_address( [
+            'first_name' => sanitize_text_field( $shipping['first_name'] ?? '' ),
+            'last_name'  => sanitize_text_field( $shipping['last_name']  ?? '' ),
+            'address_1'  => sanitize_text_field( $shipping['address_1']  ?? '' ),
+            'address_2'  => sanitize_text_field( $shipping['address_2']  ?? '' ),
+            'city'       => sanitize_text_field( $shipping['city']       ?? '' ),
+            'state'      => sanitize_text_field( $shipping['state']      ?? '' ),
+            'postcode'   => sanitize_text_field( $shipping['postcode']   ?? '' ),
+            'country'    => sanitize_text_field( $shipping['country']    ?? '' ),
+        ], 'shipping' );
+
+        // Set order meta.
+        $gateway = $gateways[ $payment_method ];
+        $order->set_payment_method( $gateway );
+        $order->set_customer_note( $order_note );
+        $order->set_created_via( 'checkout' );
+        $order->set_currency( get_woocommerce_currency() );
+        $order->set_prices_include_tax( 'yes' === get_option( 'woocommerce_prices_include_tax' ) );
+
+        $order->calculate_totals();
+        $order_id = $order->save();
+
+        // --- Process payment via gateway ---
+        $GLOBALS['cco_payment_data'] = $body['payment_data'] ?? [];
+
+        try {
+            $result = $gateway->process_payment( $order_id );
+        } catch ( Exception $e ) {
+            $order->update_status( 'failed', $e->getMessage() );
+            wp_send_json_error( [ 'message' => $e->getMessage() ] );
+        }
+
+        if ( isset( $result['result'] ) && $result['result'] === 'success' ) {
+            WC()->cart->empty_cart();
+            wp_send_json_success( [
+                'redirect'  => $result['redirect'],
+                'result'    => 'success',
+                'order_id'  => $order_id,
+            ] );
+        }
+
+        // Payment failed — gather notices.
+        $notices = wc_get_notices( 'error' );
+        $messages = [];
+        foreach ( $notices as $notice ) {
+            $messages[] = strip_tags( $notice['notice'] );
+        }
+        wc_clear_notices();
+        $order->update_status( 'failed' );
+
+        wp_send_json_error( [ 'message' => implode( ' ', $messages ) ?: 'Payment failed. Please check your card details.' ] );
+
+        wp_die();
+    }
 
     public static function get_shipping_methods( WP_REST_Request $request ): WP_REST_Response {
         // Ensure session is initialized.
@@ -468,7 +680,7 @@ class CCO_API {
 
     // ------------------------------------------------------------------
 
-    private static function sanitize_address( array $addr ): array {
+    private static function sanitize_billing_address( array $addr ): array {
         return [
             'first_name' => sanitize_text_field( $addr['first_name'] ?? '' ),
             'last_name'  => sanitize_text_field( $addr['last_name']  ?? '' ),
@@ -480,6 +692,19 @@ class CCO_API {
             'country'    => sanitize_text_field( $addr['country']    ?? '' ),
             'email'      => sanitize_email(      $addr['email']      ?? '' ),
             'phone'      => sanitize_text_field( $addr['phone']      ?? '' ),
+        ];
+    }
+
+    private static function sanitize_shipping_address( array $addr ): array {
+        return [
+            'first_name' => sanitize_text_field( $addr['first_name'] ?? '' ),
+            'last_name'  => sanitize_text_field( $addr['last_name']  ?? '' ),
+            'address_1'  => sanitize_text_field( $addr['address_1']  ?? '' ),
+            'address_2'  => sanitize_text_field( $addr['address_2']  ?? '' ),
+            'city'       => sanitize_text_field( $addr['city']       ?? '' ),
+            'state'      => sanitize_text_field( $addr['state']      ?? '' ),
+            'postcode'   => sanitize_text_field( $addr['postcode']   ?? '' ),
+            'country'    => sanitize_text_field( $addr['country']    ?? '' ),
         ];
     }
 

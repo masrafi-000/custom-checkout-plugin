@@ -65,6 +65,45 @@
         $( '#cco-notices' ).hide().html( '' );
     }
 
+    function showSuccessModal( redirectUrl, orderId ) {
+        const $modal    = $( '#cco-success-modal' );
+        const $countdown= $( '#cco-modal-countdown' );
+        const $viewBtn  = $( '#cco-modal-view-order' );
+        const $orderId  = $( '#cco-modal-order-id' );
+
+        // Populate dynamic values.
+        if ( orderId ) $orderId.text( '#' + orderId );
+        $viewBtn.attr( 'href', redirectUrl );
+
+        // Reset and restart SVG animations by cloning the SVG.
+        const svg = $modal.find( '.cco-checkmark' )[0];
+        const fresh = svg.cloneNode( true );
+        svg.parentNode.replaceChild( fresh, svg );
+
+        // Show modal.
+        $modal.addClass( 'cco-modal--active' ).attr( 'aria-hidden', 'false' );
+        $( 'body' ).css( 'overflow', 'hidden' );
+
+        // Countdown → redirect.
+        let seconds = 5;
+        $countdown.text( seconds );
+        const timer = setInterval( function () {
+            seconds -= 1;
+            $countdown.text( seconds );
+            if ( seconds <= 0 ) {
+                clearInterval( timer );
+                window.location.href = redirectUrl;
+            }
+        }, 1000 );
+
+        // Immediate redirect on button click.
+        $viewBtn.off( 'click' ).on( 'click', function ( e ) {
+            e.preventDefault();
+            clearInterval( timer );
+            window.location.href = redirectUrl;
+        } );
+    }
+
     function setLoading( loading ) {
         const $btn = $( '#cco-place-order' );
         $btn.prop( 'disabled', loading );
@@ -378,29 +417,12 @@
         };
     }
 
-    // Toggle the billing-address panel.
+    // Toggle the alternate shipping-address panel.
     $( '#cco-ship-to-different' ).on( 'change', function () {
         $( '#cco-shipping-fields' ).slideToggle( 300 );
-        syncAddress(); // Re-sync so WC knows the new shipping address.
     } );
 
-    const syncAddress = debounce( async function() {
-        try {
-            $( '.cco-summary-card' ).addClass( 'cco-is-loading' );
-            await apiCall( `${storeApiBase}/cart/update-customer`, {
-                method: 'POST',
-                body: JSON.stringify( {
-                    billing_address:  collectAddress(),
-                    shipping_address: collectShippingAddress(),
-                } )
-            } );
-            loadCart();
-        } catch ( e ) {
-            console.error( 'Address sync failed:', e );
-        }
-    }, 800 );
-
-    $( document ).on( 'input change', '.cco-form-column input, .cco-form-column select', syncAddress );
+    // Address syncing happens server-side at order placement — no live sync needed.
 
     // ---------------------------------------------------------------
     // 4. Timer & Payment Toggles
@@ -441,6 +463,60 @@
     // 5. Place Order
     // ---------------------------------------------------------------
 
+    // ---------------------------------------------------------------
+    // AJAX Call Helper
+    // ---------------------------------------------------------------
+    async function ajaxCall( action, data = {} ) {
+        const response = await fetch( `${window.CCO.ajaxUrl}?action=${action}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify( {
+                ...data,
+                nonce: window.CCO.ajaxNonce
+            } ),
+        } );
+
+        let resData;
+        try {
+            resData = await response.json();
+        } catch ( e ) {
+            throw new Error( 'Server returned an invalid response. Please check your logs.' );
+        }
+
+        // Handle WC's native checkout AJAX format (result: 'success'/'failure')
+        // WC calls die() directly, so its raw JSON response reaches us here.
+        if ( resData.result === 'success' && resData.redirect ) {
+            return resData; // WC success — return whole object so caller gets redirect
+        }
+
+        // Handle standard WP AJAX format (success: true/false)
+        const isSuccess = resData.success === true;
+
+        if ( ! isSuccess ) {
+            let errorMsg;
+
+            if ( resData.data && resData.data.message ) {
+                // Standard wp_send_json_error format
+                errorMsg = resData.data.message;
+            } else if ( resData.messages ) {
+                // WC failure format — messages is HTML, extract text via DOM
+                const tmp = document.createElement( 'div' );
+                tmp.innerHTML = resData.messages;
+                errorMsg = ( tmp.innerText || tmp.textContent || '' ).trim();
+            } else if ( typeof resData.data === 'string' ) {
+                errorMsg = resData.data;
+            } else {
+                errorMsg = 'Order could not be completed. Please try again.';
+            }
+
+            throw new Error( errorMsg || 'Order could not be completed. Please try again.' );
+        }
+
+        return resData.data || resData;
+    }
+
     $( '#cco-place-order' ).on( 'click', async function () {
         clearNotice();
         setLoading( true );
@@ -475,30 +551,37 @@
             payment_method: paymentMethod,
             billing:        collectAddress(),
             shipping:       collectShippingAddress(),
+            order_note:     ( $( '#cco-order-note' ).val() || '' ).trim(),
+            wc_nonce:       window.CCO.checkoutNonce,
             payment_data:   {},
         };
 
         // If paying with Bankful, collect the card data.
         if ( paymentMethod === 'bankful' ) {
             payload.payment_data = {
-                bankful_card_num:    $( '#bankful-card-num' ).val().replace(/\s/g, ''),
-                bankful_card_expiry: $( '#bankful-card-expiry' ).val().trim(),
-                bankful_card_cvc:    $( '#bankful-card-cvc' ).val().trim(),
+                bankful_card_num:    ( $( '#bankful-card-num' ).val() || '' ).replace( /\s/g, '' ),
+                bankful_card_expiry: ( $( '#bankful-card-expiry' ).val() || '' ).trim(),
+                bankful_card_cvc:    ( $( '#bankful-card-cvc' ).val() || '' ).trim(),
             };
         }
 
         try {
-            const data = await apiCall( `${apiBase}/place-order`, {
-                method: 'POST',
-                body:   JSON.stringify( payload ),
-            } );
-            window.location.href = data.redirect_url;
+            const data = await ajaxCall( 'cco_place_order', payload );
+
+            // data may be WC's native format (result/redirect) or our wp_send_json_success wrapper
+            const redirectUrl = data.redirect
+                || ( data.data && data.data.redirect )
+                || data.order_received_url;
+
+            if ( redirectUrl ) {
+                showSuccessModal( redirectUrl, data.order_id || '' );
+            } else {
+                throw new Error( 'Order completed but redirect URL was missing.' );
+            }
         } catch ( err ) {
             console.error( 'Checkout Failed:', err );
-            if ( err.response && err.response.data && err.response.data.errors ) {
-                console.table( err.response.data.errors );
-            }
             showNotice( err.message || 'Order failed. Please check your details.' );
+        } finally {
             setLoading( false );
         }
     } );

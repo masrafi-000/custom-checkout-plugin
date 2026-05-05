@@ -919,3 +919,182 @@ body.cco-checkout-body {
 .cco-main .cco-container {
   padding: 20px !important;
 }
+
+/* ═══════════════════════════════════════════════
+   THANK YOU MODAL
+   ═══════════════════════════════════════════════ */
+
+.cco-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 10, 20, 0.72);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.35s ease, visibility 0.35s ease;
+}
+
+.cco-modal-overlay.cco-modal--active {
+  opacity: 1;
+  visibility: visible;
+}
+
+.cco-modal-card {
+  background: #fff;
+  border-radius: 20px;
+  padding: 48px 40px 44px;
+  max-width: 440px;
+  width: calc(100% - 40px);
+  text-align: center;
+  box-shadow: 0 32px 80px rgba(0,0,0,0.22), 0 0 0 1px rgba(194,155,78,0.15);
+  transform: translateY(28px) scale(0.96);
+  transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.cco-modal-overlay.cco-modal--active .cco-modal-card {
+  transform: translateY(0) scale(1);
+}
+
+/* ── Animated Checkmark ── */
+.cco-modal-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 24px;
+}
+
+.cco-checkmark {
+  width: 72px;
+  height: 72px;
+}
+
+.cco-checkmark__circle {
+  stroke: #c29b4e;
+  stroke-width: 2.5;
+  stroke-dasharray: 166;
+  stroke-dashoffset: 166;
+  stroke-linecap: round;
+  animation: cco-stroke-circle 0.65s cubic-bezier(0.65, 0, 0.45, 1) 0.1s forwards;
+}
+
+.cco-checkmark__check {
+  stroke: #c29b4e;
+  stroke-width: 2.8;
+  stroke-dasharray: 48;
+  stroke-dashoffset: 48;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  animation: cco-stroke-check 0.4s cubic-bezier(0.65, 0, 0.45, 1) 0.7s forwards;
+}
+
+@keyframes cco-stroke-circle {
+  100% { stroke-dashoffset: 0; }
+}
+@keyframes cco-stroke-check {
+  100% { stroke-dashoffset: 0; }
+}
+
+/* ── Content ── */
+.cco-modal-title {
+  font-size: 26px !important;
+  font-weight: 700 !important;
+  color: #1a1a2e !important;
+  margin: 0 0 10px !important;
+  line-height: 1.2 !important;
+}
+
+.cco-modal-subtitle {
+  font-size: 14px !important;
+  color: #71717a !important;
+  line-height: 1.6 !important;
+  margin: 0 0 28px !important;
+}
+
+/* ── Meta rows ── */
+.cco-modal-meta {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 16px 20px;
+  margin-bottom: 22px;
+  text-align: left;
+}
+
+.cco-modal-meta-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+}
+
+.cco-modal-meta-row + .cco-modal-meta-row {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.cco-modal-meta-label {
+  color: #71717a;
+  font-weight: 400;
+}
+
+.cco-modal-meta-value {
+  font-weight: 600;
+  color: #1a1a2e;
+}
+
+.cco-modal-status {
+  background: #ecfdf5;
+  color: #065f46;
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 99px;
+  font-weight: 600;
+}
+
+/* ── Redirect message ── */
+.cco-modal-redirect-msg {
+  font-size: 13px !important;
+  color: #94a3b8 !important;
+  margin: 0 0 24px !important;
+}
+
+.cco-modal-redirect-msg strong {
+  color: #c29b4e;
+  font-weight: 700;
+}
+
+/* ── CTA Button ── */
+.cco-modal-btn {
+  display: inline-block;
+  background: #c29b4e;
+  color: #fff !important;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 13px 32px;
+  border-radius: 10px;
+  text-decoration: none !important;
+  transition: background 0.2s ease, transform 0.15s ease;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.cco-modal-btn:hover {
+  background: #a6813d;
+  transform: translateY(-1px);
+  color: #fff !important;
+}
+
+@media (max-width: 480px) {
+  .cco-modal-card {
+    padding: 36px 24px 32px;
+  }
+  .cco-modal-title {
+    font-size: 22px !important;
+  }
+}

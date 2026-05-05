@@ -26,6 +26,41 @@ if ( WC()->cart->is_empty() ) {
 </head>
 <body class="cco-checkout-body">
 
+<!-- ═══════════════════════════════════════════════
+     THANK YOU MODAL
+     ═══════════════════════════════════════════════ -->
+<div id="cco-success-modal" class="cco-modal-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="cco-modal-title">
+    <div class="cco-modal-card">
+
+        <!-- Animated checkmark -->
+        <div class="cco-modal-icon">
+            <svg class="cco-checkmark" viewBox="0 0 52 52" xmlns="http://www.w3.org/2000/svg">
+                <circle class="cco-checkmark__circle" cx="26" cy="26" r="25" fill="none"/>
+                <path   class="cco-checkmark__check"  fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/>
+            </svg>
+        </div>
+
+        <!-- Content -->
+        <h2 id="cco-modal-title" class="cco-modal-title">Order Placed!</h2>
+        <p class="cco-modal-subtitle">Thank you for your purchase. Your order has been received and is being processed.</p>
+
+        <div class="cco-modal-meta">
+            <div class="cco-modal-meta-row">
+                <span class="cco-modal-meta-label">Order #</span>
+                <span class="cco-modal-meta-value" id="cco-modal-order-id">—</span>
+            </div>
+            <div class="cco-modal-meta-row">
+                <span class="cco-modal-meta-label">Status</span>
+                <span class="cco-modal-meta-value cco-modal-status">Processing</span>
+            </div>
+        </div>
+
+        <p class="cco-modal-redirect-msg">Redirecting to your order confirmation in <strong id="cco-modal-countdown">5</strong>s…</p>
+
+        <a id="cco-modal-view-order" href="#" class="cco-modal-btn">View Order Details</a>
+    </div>
+</div>
+
 <div id="cco-checkout-wrap">
 
     <!-- HEADER -->
@@ -37,7 +72,7 @@ if ( WC()->cart->is_empty() ) {
                         <img src="<?php echo esc_url( CCO_PLUGIN_URL . 'assets/images/logo.png' ); ?>" alt="Pure Peptides" class="cco-logo-img">
                     </a>
                 </div>
-                <a href="<?php echo esc_url( home_url( '/shop/' ) ); ?>" class="cco-back-to-shop">
+                <a href="<?php echo esc_url( wc_get_page_permalink( 'products' ) ); ?>" class="cco-back-to-shop">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <path d="M19 12H5M5 12L12 5M5 12L12 19" stroke="#334155" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                     </svg>

@@ -36,13 +36,15 @@ class CCO_Assets {
             true   // footer
         );
 
-        // Pass data from PHP to JS.
+
         wp_localize_script( 'cco-checkout', 'CCO', [
+            'ajaxUrl'      => admin_url( 'admin-ajax.php' ),
             'storeApiBase' => esc_url( home_url( '/wp-json/wc/store/v1' ) ),
             'apiBase'      => esc_url( home_url( '/wp-json/cco/v1' ) ),
             'wpNonce'      => wp_create_nonce( 'wp_rest' ),          // WP REST API nonce (for cookie auth)
             'nonce'        => wp_create_nonce( 'wc_store_api' ),     // WC Store API nonce
-            'ajaxNonce'    => wp_create_nonce( 'cco_ajax' ),         // our own AJAX nonce
+            'ajaxNonce'    => wp_create_nonce( 'cco_ajax' ),
+            'checkoutNonce'=> wp_create_nonce( 'woocommerce-process_checkout' ),
             'currency'     => get_woocommerce_currency_symbol(),
             'currencyCode' => get_woocommerce_currency(),            // e.g. "AUD", "USD"
             'i18n'         => [
