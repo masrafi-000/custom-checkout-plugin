@@ -152,46 +152,49 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
 
         // ── Determine API endpoint ──
         $api_url = $this->test_mode
-            ? 'https://api.sandbox.bankful.com/v1/transaction'
-            : 'https://api.bankful.com/v1/transaction';
+            ? 'https://api-dev1.bankfulportal.com/api/transaction/api'
+            : 'https://api.paybybankful.com/api/transaction/api';
 
         $year = trim( $expiry[1] );
         if ( strlen( $year ) === 2 ) {
             $year = '20' . $year;
         }
 
+        $month = str_pad( trim( $expiry[0] ), 2, '0', STR_PAD_LEFT );
+
+        // Bankful API uses application/x-www-form-urlencoded and body-based auth.
         $payload = [
-            'amount'          => number_format( (float) $order->get_total(), 2, '.', '' ),
-            'currency'        => get_woocommerce_currency(),
-            'card_number'     => $card_num,
-            'expiry_month'    => str_pad( trim( $expiry[0] ), 2, '0', STR_PAD_LEFT ),
-            'expiry_year'     => $year,
-            'cvv'             => $cvc,
-            'order_id'        => (string) $order_id,
-            'billing_details' => [
-                'first_name' => $order->get_billing_first_name(),
-                'last_name'  => $order->get_billing_last_name(),
-                'email'      => $order->get_billing_email(),
-                'address'    => $order->get_billing_address_1(),
-                'city'       => $order->get_billing_city(),
-                'state'      => $order->get_billing_state(),
-                'postcode'   => $order->get_billing_postcode(),
-                'country'    => $order->get_billing_country(),
-                'phone'      => $order->get_billing_phone(),
-            ],
+            'req_username'     => $this->api_key,
+            'req_password'     => $this->secret_key,
+            'transaction_type' => 'CAPTURE',
+            'amount'           => number_format( (float) $order->get_total(), 2, '.', '' ),
+            'request_currency' => 'AUD',
+            'pmt_numb'         => $card_num,
+            'pmt_expiry'       => $month . '/' . $year,
+            'pmt_key'          => $cvc,
+            'xtl_order_id'     => (string) $order_id,
+            'cust_fname'       => $order->get_billing_first_name(),
+            'cust_lname'       => $order->get_billing_last_name(),
+            'cust_email'       => $order->get_billing_email(),
+            'cust_phone'       => $order->get_billing_phone(),
+            'bill_addr'        => $order->get_billing_address_1(),
+            'bill_addr_city'   => $order->get_billing_city(),
+            'bill_addr_state'  => $order->get_billing_state(),
+            'bill_addr_zip'    => $order->get_billing_postcode(),
+            'bill_addr_country'=> $order->get_billing_country(),
         ];
 
         error_log( 'Bankful: Sending to ' . $api_url . ' | Order #' . $order_id . ' | Amount: ' . $payload['amount'] );
 
         $response = wp_remote_post( $api_url, [
-            'method'  => 'POST',
-            'headers' => [
-                'Authorization' => 'Basic ' . base64_encode( $this->api_key . ':' . $this->secret_key ),
-                'Content-Type'  => 'application/json',
-                'Accept'        => 'application/json',
+            'method'      => 'POST',
+            'headers'     => [
+                'Content-Type'  => 'application/x-www-form-urlencoded',
+                'cache-control' => 'no-cache',
             ],
-            'body'    => wp_json_encode( $payload ),
-            'timeout' => 45,
+            'body'        => $payload, // wp_remote_post automatically form-encodes arrays
+            'timeout'     => 45,
+            'sslverify'   => false, // Useful for some hosting environments with old CA bundles, can be set to true if server is updated
         ] );
 
         if ( is_wp_error( $response ) ) {
@@ -204,15 +207,18 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
 
         $http_code     = wp_remote_retrieve_response_code( $response );
         $response_body = wp_remote_retrieve_body( $response );
-        $body          = json_decode( $response_body );
+        
+        // Bankful usually returns form-encoded or JSON depending on the endpoint.
+        // The /api/transaction/api usually returns JSON.
+        $body = json_decode( $response_body );
 
-        // Full response log for sandbox debugging.
+        // Full response log for debugging.
         error_log( 'Bankful HTTP ' . $http_code . ' Response: ' . $response_body );
         $order->add_order_note( 'Bankful raw response (HTTP ' . $http_code . '): ' . $response_body );
 
         // Accept any common success status from the gateway.
+        $status_value = strtolower( $body->status ?? $body->result ?? '' );
         $success_statuses = [ 'approved', 'success', 'captured', 'paid', 'completed' ];
-        $status_value     = strtolower( $body->status ?? $body->result ?? '' );
 
         if ( in_array( $status_value, $success_statuses, true ) || ( $http_code >= 200 && $http_code < 300 && ! empty( $body->transaction_id ?? $body->id ?? '' ) ) ) {
             $txn_id = $body->transaction_id ?? $body->id ?? ( 'BF-' . $order_id );
