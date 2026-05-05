@@ -208,23 +208,36 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
         $http_code     = wp_remote_retrieve_response_code( $response );
         $response_body = wp_remote_retrieve_body( $response );
         
-        // Bankful usually returns form-encoded or JSON depending on the endpoint.
-        // The /api/transaction/api usually returns JSON.
-        $body = json_decode( $response_body );
-
-        // Full response log for debugging.
+        // Log for debugging.
         error_log( 'Bankful HTTP ' . $http_code . ' Response: ' . $response_body );
-        $order->add_order_note( 'Bankful raw response (HTTP ' . $http_code . '): ' . $response_body );
+        $order->add_order_note( 'Bankful Response (HTTP ' . $http_code . '): ' . $response_body );
 
-        // Accept any common success status from the gateway.
-        $status_value = strtolower( $body->status ?? $body->result ?? '' );
-        $success_statuses = [ 'approved', 'success', 'captured', 'paid', 'completed' ];
+        // Try to parse as JSON first.
+        $body_obj = json_decode( $response_body, true );
+        
+        // If not JSON, try to parse as form-encoded (common for legacy gateway APIs).
+        if ( ! is_array( $body_obj ) ) {
+            parse_str( $response_body, $body_obj );
+        }
 
-        if ( in_array( $status_value, $success_statuses, true ) || ( $http_code >= 200 && $http_code < 300 && ! empty( $body->transaction_id ?? $body->id ?? '' ) ) ) {
-            $txn_id = $body->transaction_id ?? $body->id ?? ( 'BF-' . $order_id );
-            $order->set_transaction_id( $txn_id );
+        // Standardize status checks.
+        $status_raw = $body_obj['status'] ?? $body_obj['result'] ?? $body_obj['response'] ?? $body_obj['response_code'] ?? '';
+        $status     = strtolower( (string) $status_raw );
+        $txn_id     = $body_obj['transaction_id'] ?? $body_obj['id'] ?? $body_obj['txn_id'] ?? '';
+
+        $success_keywords = [ 'approved', 'success', 'captured', 'paid', 'completed', '1' ];
+        $is_success = in_array( $status, $success_keywords, true );
+
+        // Even if status string is missing, check HTTP code and presence of a transaction ID.
+        if ( ! $is_success && $http_code >= 200 && $http_code < 300 && ! empty( $txn_id ) ) {
+            $is_success = true;
+        }
+
+        if ( $is_success ) {
+            $final_txn_id = $txn_id ?: ( 'BF-' . $order_id );
+            $order->set_transaction_id( $final_txn_id );
             $order->payment_complete();
-            $order->add_order_note( 'Bankful payment successful. Transaction ID: ' . $txn_id );
+            $order->add_order_note( 'Bankful payment successful. Transaction ID: ' . $final_txn_id );
             $order->save();
             WC()->cart->empty_cart();
             return [
@@ -233,10 +246,15 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
             ];
         }
 
-        // Payment rejected — surface the exact reason.
-        $msg = $body->message ?? $body->error ?? $body->error_message ?? 'Payment rejected by provider (HTTP ' . $http_code . ').';
-        error_log( 'Bankful Payment Failed: ' . $msg );
-        wc_add_notice( $msg, 'error' );
+        // Payment failed or was rejected.
+        $error_msg = $body_obj['message'] ?? $body_obj['error'] ?? $body_obj['error_message'] ?? $body_obj['response_text'] ?? '';
+        
+        if ( empty( $error_msg ) ) {
+            $error_msg = 'Payment rejected by provider (HTTP ' . $http_code . ').';
+        }
+
+        error_log( 'Bankful Payment Failed: ' . $error_msg );
+        wc_add_notice( $error_msg, 'error' );
         return [ 'result' => 'failure' ];
     }
 
