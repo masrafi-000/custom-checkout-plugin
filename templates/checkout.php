@@ -234,7 +234,7 @@ if ( WC()->cart->is_empty() ) {
                         <span class="cco-btn-spinner" style="display:none;" aria-hidden="true">⏳</span>
                     </button>
                     <p class="cco-secure-footer">
-                        🔒 Secure checkout powered by TagadaPay
+                        🔒 Secure checkout powered by <img src="<?php echo esc_url( CCO_PLUGIN_URL . 'assets/images/shop.png' ); ?>" alt="TagadaPay" class="cco-secure-logo">
                     </p>
                 </div>
 

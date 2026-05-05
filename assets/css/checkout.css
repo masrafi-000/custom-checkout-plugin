@@ -563,6 +563,15 @@ body.cco-checkout-body {
   font-size: 12px !important;
   color: var(--cco-text-muted) !important;
   margin-top: 12px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+}
+.cco-secure-logo {
+  height: 20px !important;
+  width: auto !important;
+  vertical-align: middle !important;
 }
 
 .cco-footer-links {
