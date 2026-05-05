@@ -113,62 +113,16 @@ class CCO_API {
             WC()->session->init_session_cookie();
         }
 
+        $session_data = ! is_null( WC()->session )
+            ? (array) WC()->session->get( 'customer', [] )
+            : [];
+
         if ( ! is_null( WC()->cart ) ) {
             if ( 0 === WC()->cart->get_cart_contents_count() ) {
                 WC()->cart->get_cart_from_session();
             }
 
-            // ── Tax Fix ──────────────────────────────────────────────────────
-            // In a REST API context WC_Customer starts empty, so WC calculates
-            // zero tax.  We restore the customer location from the session data
-            // (written by the WC Store API update-customer endpoint when the
-            // shopper fills in their address), and fall back to the store's
-            // base address so taxes are always estimated — exactly as WooCommerce
-            // behaves on the cart/product pages before an address is entered.
-            if ( ! is_null( WC()->customer ) && ! is_null( WC()->session ) ) {
-                $session_customer = (array) WC()->session->get( 'customer', [] );
-
-                $base_country  = WC()->countries->get_base_country();
-                $base_state    = WC()->countries->get_base_state();
-                $base_postcode = WC()->countries->get_base_postcode();
-                $base_city     = WC()->countries->get_base_city();
-
-                // Billing location — prefer session, fall back to store base.
-                WC()->customer->set_billing_country(
-                    ! empty( $session_customer['country'] ) ? $session_customer['country'] : $base_country
-                );
-                WC()->customer->set_billing_state(
-                    ! empty( $session_customer['state'] ) ? $session_customer['state'] : $base_state
-                );
-                WC()->customer->set_billing_postcode(
-                    ! empty( $session_customer['postcode'] ) ? $session_customer['postcode'] : $base_postcode
-                );
-                WC()->customer->set_billing_city(
-                    ! empty( $session_customer['city'] ) ? $session_customer['city'] : $base_city
-                );
-
-                // Shipping location — prefer shipping keys, then billing, then base.
-                WC()->customer->set_shipping_country(
-                    ! empty( $session_customer['shipping_country'] ) ? $session_customer['shipping_country']
-                    : ( ! empty( $session_customer['country'] )         ? $session_customer['country']          : $base_country )
-                );
-                WC()->customer->set_shipping_state(
-                    ! empty( $session_customer['shipping_state'] ) ? $session_customer['shipping_state']
-                    : ( ! empty( $session_customer['state'] )         ? $session_customer['state']           : $base_state )
-                );
-                WC()->customer->set_shipping_postcode(
-                    ! empty( $session_customer['shipping_postcode'] ) ? $session_customer['shipping_postcode']
-                    : ( ! empty( $session_customer['postcode'] )         ? $session_customer['postcode']          : $base_postcode )
-                );
-                WC()->customer->set_shipping_city(
-                    ! empty( $session_customer['shipping_city'] ) ? $session_customer['shipping_city']
-                    : ( ! empty( $session_customer['city'] )         ? $session_customer['city']             : $base_city )
-                );
-
-                WC()->customer->save();
-            }
-            // ─────────────────────────────────────────────────────────────────
-
+            // Recalculate totals to ensure items/discounts are fresh.
             WC()->cart->calculate_totals();
         }
 
@@ -229,28 +183,38 @@ class CCO_API {
         // WooCommerce (e.g. "GST 10%", "PST 5%", "Federal 2%"), each with its
         // admin label and calculated amount. This is the same data WC uses on
         // the cart page to display itemised taxes.
-        $session_customer = (array) WC()->session->get( 'customer', [] );
-        $has_address      = ! empty( $session_customer['country'] );
-        $prefix           = $has_address ? '' : 'Estimated ';
+        // Reuse $session_data fetched in the tax-location block above.
+        $has_address = ! empty( $session_data['country'] );
+        $prefix      = $has_address ? '' : 'Estimated ';
 
-        $tax_lines = [];
-        foreach ( $cart->get_tax_totals() as $key => $tax ) {
-            $tax_lines[] = [
-                'label'       => $prefix . $tax->label,
-                'amount'      => (float) $tax->amount,
-                'is_compound' => ! empty( $tax->is_compound ),
-            ];
-        }
+
+        // ── Static 10% Tax Calculation ──────────────────────────────────
+        // The user requested to bypass native WC tax lookups and just apply
+        // a flat 10% tax for the checkout page.
+        $taxable_amount = (float) $cart->get_subtotal() - (float) $cart->get_discount_total();
+        $static_tax     = round( $taxable_amount * 0.10, 2 );
+
+        // Update the itemised tax lines for the UI.
+        $tax_lines = [
+            [
+                'label'       => $prefix . 'GST (10%)',
+                'amount'      => $static_tax,
+                'is_compound' => false,
+            ]
+        ];
+
+        // Recalculate total manually to include the static tax.
+        $final_total = $taxable_amount + (float) $cart->get_shipping_total() + $static_tax;
 
         return new WP_REST_Response( [
             'items'              => $items,
             'subtotal'           => (float) $cart->get_subtotal(),
             'discount_total'     => (float) $cart->get_discount_total(),
             'shipping_total'     => (float) $cart->get_shipping_total(),
-            'tax_total'          => (float) $cart->get_taxes_total(),
+            'tax_total'          => $static_tax,
             'tax_lines'          => $tax_lines,
-            'tax_enabled'        => wc_tax_enabled(),
-            'total'              => (float) $cart->get_total( 'edit' ),
+            'tax_enabled'        => true, // Force true for our static tax
+            'total'              => (float) $final_total,
             'currency_symbol'    => get_woocommerce_currency_symbol(),
             'needs_shipping'     => $cart->needs_shipping(),
             'shipping_rates'     => $shipping_rates,
