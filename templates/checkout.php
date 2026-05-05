@@ -266,13 +266,13 @@ if ( WC()->cart->is_empty() ) {
                 </div>
 
 
-                <footer class="cco-footer-links">
+                <!-- <footer class="cco-footer-links">
                     <a href="#">Privacy Policy</a>
                     <a href="#">Terms of Service</a>
                     <a href="#">Refund Policy</a>
                     <a href="#">Shipping Policy</a>
                     <a href="#">Payment Methods</a>
-                </footer>
+                </footer> -->
 
             </div>
 

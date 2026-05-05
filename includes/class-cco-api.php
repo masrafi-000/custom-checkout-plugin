@@ -341,14 +341,56 @@ class CCO_API {
             return new WP_REST_Response( [ 'message' => 'Empty request body.' ], 400 );
         }
 
+        $billing  = self::sanitize_address( $body['billing'] ?? [] );
+        $shipping = self::sanitize_address( $body['shipping'] ?? $body['billing'] ?? [] );
+
+        // Sync address to WC session so shipping/tax calculate correctly.
+        WC()->customer->set_props( [
+            'billing_first_name'  => $billing['first_name'],
+            'billing_last_name'   => $billing['last_name'],
+            'billing_address_1'   => $billing['address_1'],
+            'billing_address_2'   => $billing['address_2'],
+            'billing_city'        => $billing['city'],
+            'billing_state'       => $billing['state'],
+            'billing_postcode'    => $billing['postcode'],
+            'billing_country'     => $billing['country'],
+            'billing_email'       => $billing['email'],
+            'billing_phone'       => $billing['phone'],
+            'shipping_first_name' => $shipping['first_name'],
+            'shipping_last_name'  => $shipping['last_name'],
+            'shipping_address_1'  => $shipping['address_1'],
+            'shipping_address_2'  => $shipping['address_2'],
+            'shipping_city'       => $shipping['city'],
+            'shipping_state'      => $shipping['state'],
+            'shipping_postcode'   => $shipping['postcode'],
+            'shipping_country'    => $shipping['country'],
+        ] );
+        WC()->customer->save();
+
+        // If shipping is required but none chosen (static checkout), auto-select first available.
+        if ( WC()->cart->needs_shipping() ) {
+            WC()->cart->calculate_shipping();
+            $packages = WC()->cart->get_shipping_packages();
+            $rates    = WC()->shipping()->calculate_shipping_for_package( current( $packages ) );
+            if ( ! empty( $rates['rates'] ) ) {
+                $first_rate = current( $rates['rates'] );
+                WC()->session->set( 'chosen_shipping_methods', [ $first_rate->id ] );
+            }
+        }
+
+        WC()->cart->calculate_totals();
+
         // Build payload for WC Store API.
         $payload = [
             'payment_method'  => sanitize_text_field( $body['payment_method'] ?? 'bankful' ),
-            'billing_address' => self::sanitize_address( $body['billing'] ?? [] ),
-            'shipping_address'=> self::sanitize_address( $body['shipping'] ?? $body['billing'] ?? [] ),
+            'billing_address' => $billing,
+            'shipping_address'=> $shipping,
             'customer_note'   => sanitize_textarea_field( $body['order_note'] ?? '' ),
-            'payment_data'    => $body['payment_data'] ?? [],
         ];
+
+        // Store payment data in a global so our gateway can pick it up 
+        // during the internal rest_do_request call.
+        $GLOBALS['cco_payment_data'] = $body['payment_data'] ?? [];
 
         // Internal WC Store API request.
         $store_request = new WP_REST_Request( 'POST', '/wc/store/v1/checkout' );

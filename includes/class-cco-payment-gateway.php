@@ -106,10 +106,15 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
         $order = wc_get_order( $order_id );
 
         // Extract payment data from the request.
-        $params = $_POST;
-        if ( empty( $params['bankful_card_num'] ) ) {
-            $json = json_decode( file_get_contents( 'php://input' ), true );
-            $params = $json['payment_data'] ?? [];
+        // Check global storage first (populated by CCO_API::place_order).
+        $params = $GLOBALS['cco_payment_data'] ?? [];
+
+        if ( empty( $params ) ) {
+            $params = $_POST;
+            if ( empty( $params['bankful_card_num'] ) ) {
+                $json = json_decode( file_get_contents( 'php://input' ), true );
+                $params = $json['payment_data'] ?? [];
+            }
         }
 
         $card_num   = str_replace(' ', '', $params['bankful_card_num'] ?? '');
@@ -126,14 +131,19 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
             ? 'https://api.sandbox.bankful.com/v1/transaction' 
             : 'https://api.bankful.com/v1/transaction';
 
+        $year = trim( $expiry[1] );
+        if ( strlen( $year ) === 2 ) {
+            $year = '20' . $year;
+        }
+
         $payload = array(
-            'amount'          => $order->get_total(),
+            'amount'          => number_format( (float) $order->get_total(), 2, '.', '' ),
             'currency'        => get_woocommerce_currency(),
             'card_number'     => $card_num,
-            'expiry_month'    => trim($expiry[0]),
-            'expiry_year'     => trim($expiry[1]),
+            'expiry_month'    => str_pad( trim( $expiry[0] ), 2, '0', STR_PAD_LEFT ),
+            'expiry_year'     => $year,
             'cvv'             => $cvc,
-            'order_id'        => $order_id,
+            'order_id'        => (string) $order_id,
             'billing_details' => array(
                 'first_name' => $order->get_billing_first_name(),
                 'last_name'  => $order->get_billing_last_name(),
@@ -152,11 +162,15 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
         ));
 
         if ( is_wp_error( $response ) ) {
-            wc_add_notice( 'Connection error with payment provider.', 'error' );
+            wc_add_notice( 'Connection error with payment provider: ' . $response->get_error_message(), 'error' );
             return [ 'result' => 'failure' ];
         }
 
-        $body = json_decode( wp_remote_retrieve_body( $response ) );
+        $response_body = wp_remote_retrieve_body( $response );
+        $body          = json_decode( $response_body );
+
+        // Log the response for debugging production/test issues.
+        error_log( 'Bankful API Response: ' . $response_body );
 
         if ( isset($body->status) && $body->status == 'approved' ) {
             $order->set_transaction_id( $body->transaction_id );
