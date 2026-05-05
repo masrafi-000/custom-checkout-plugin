@@ -240,9 +240,55 @@
 
         $( '#cco-cart-totals' ).html( html );
 
+        // Update mobile summary total display.
+        $( '#cco-mobile-total-display' ).html( fmt( data.total ) );
+
         // Console log the total price as requested by the user.
         console.log( 'Cart Summary Loaded. Total Price: ', data.total );
     }
+
+    /**
+     * Handle Mobile Summary Toggle
+     */
+    $( document ).on( 'click', '#cco-mobile-summary-toggle', function () {
+        const $header = $( this );
+        const $card = $( '.cco-summary-card' );
+        const $text = $header.find( '.cco-mobile-summary-text' );
+        
+        $card.stop().slideToggle( 300, function () {
+            if ( $card.is( ':visible' ) ) {
+                $text.text( 'Hide order summary' );
+                $header.addClass( 'cco-is-active' );
+                $header.find( '.cco-mobile-summary-arrow' ).text( '▲' );
+            } else {
+                $text.text( 'Show order summary' );
+                $header.removeClass( 'cco-is-active' );
+                $header.find( '.cco-mobile-summary-arrow' ).text( '▼' );
+            }
+        } );
+    } );
+
+    // Initialize toggle state on load for mobile
+    if ( $( window ).width() <= 991 ) {
+        $( '#cco-mobile-summary-toggle' ).addClass( 'cco-is-active' );
+        $( '#cco-mobile-summary-toggle .cco-mobile-summary-text' ).text( 'Hide order summary' );
+        $( '#cco-mobile-summary-toggle .cco-mobile-summary-arrow' ).text( '▲' );
+        $( '.cco-summary-card' ).show();
+    }
+
+    // Prevent issues when switching between media widths (resizing)
+    $( window ).on( 'resize', function () {
+        if ( $( window ).width() > 991 ) {
+            $( '.cco-summary-card' ).css( 'display', '' );
+        } else {
+            // Restore visibility state for mobile based on toggle class
+            if ( $( '#cco-mobile-summary-toggle' ).hasClass( 'cco-is-active' ) ) {
+                $( '.cco-summary-card' ).css( 'display', 'block' );
+            } else {
+                $( '.cco-summary-card' ).css( 'display', 'none' );
+            }
+        }
+    } );
 
 
 

@@ -69,6 +69,12 @@ body.cco-checkout-body {
   grid-template-columns: 1.5fr 1fr !important;
   gap: 60px !important;
   padding: 20px !important;
+  align-items: start !important;
+}
+.cco-sidebar-wrapper {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 24px !important;
 }
 
 @media (max-width: 991px) {
@@ -734,23 +740,65 @@ body.cco-checkout-body {
   height: 4px !important;
 }
 
-/* ── Responsive Improvements ── */
-@media (max-width: 1024px) {
-  .cco-layout-grid {
-    gap: 30px !important;
-  }
+/* ── Mobile Summary Toggle Header ── */
+.cco-mobile-summary-header {
+  display: none !important;
+  background: #f9fafb !important;
+  border-top: 1px solid #e5e7eb !important;
+  border-bottom: 1px solid #e5e7eb !important;
+  padding: 15px 20px !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  cursor: pointer !important;
+  margin-bottom: 20px !important;
+}
+.cco-mobile-summary-left {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  color: #3b82f6 !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+}
+.cco-mobile-summary-total {
+  font-size: 16px !important;
+  font-weight: 600 !important;
+  color: #111827 !important;
+}
+.cco-mobile-summary-arrow {
+  font-size: 10px !important;
+  transition: transform 0.3s !important;
+}
+.cco-mobile-summary-header.cco-is-active .cco-mobile-summary-arrow {
+  transform: rotate(180deg) !important;
 }
 
 @media (max-width: 991px) {
+  .cco-mobile-summary-header {
+    display: flex !important;
+  }
   .cco-layout-grid {
     grid-template-columns: 1fr !important;
-    gap: 40px !important;
+    gap: 30px !important;
   }
-  .cco-sidebar-column {
-    order: 2 !important;
+  .cco-sidebar-wrapper {
+    display: contents !important;
+  }
+  .cco-summary-card {
+    order: 1 !important;
+    display: block; /* Visible by default on mobile */
+    border-radius: 0 !important;
+    border-left: none !important;
+    border-right: none !important;
+    margin: 0 -20px 20px -20px !important;
+    padding: 20px !important;
+    background: #fefefe !important;
   }
   .cco-form-column {
-    order: 1 !important;
+    order: 2 !important;
+  }
+  .cco-trust-section {
+    order: 3 !important;
   }
 }
 

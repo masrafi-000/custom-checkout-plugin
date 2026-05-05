@@ -53,6 +53,16 @@ if ( WC()->cart->is_empty() ) {
         <!-- NOTICES -->
         <div id="cco-notices" role="alert" aria-live="polite"></div>
 
+        <!-- Mobile Summary Toggle (visible only on mobile) -->
+        <div class="cco-mobile-summary-header" id="cco-mobile-summary-toggle">
+            <div class="cco-mobile-summary-left">
+                <span class="cco-mobile-summary-icon">🛒</span>
+                <span class="cco-mobile-summary-text">Show order summary</span>
+                <span class="cco-mobile-summary-arrow">▼</span>
+            </div>
+            <div class="cco-mobile-summary-total" id="cco-mobile-total-display">$0.00</div>
+        </div>
+
         <div class="cco-layout-grid">
             
             <!-- LEFT: FORM -->
@@ -253,6 +263,7 @@ if ( WC()->cart->is_empty() ) {
                     </div>
                 </div>
 
+
                 <footer class="cco-footer-links">
                     <a href="#">Privacy Policy</a>
                     <a href="#">Terms of Service</a>
@@ -263,9 +274,7 @@ if ( WC()->cart->is_empty() ) {
 
             </div>
 
-            <!-- RIGHT: SIDEBAR -->
-            <div class="cco-sidebar-column">
-                
+            <div class="cco-sidebar-wrapper">
                 <!-- Order Summary -->
                 <div class="cco-summary-card">
                     <h2>Order summary</h2>
@@ -305,6 +314,7 @@ if ( WC()->cart->is_empty() ) {
                         </div>
                     </div>
                 </div>
+            </div>
 
             </div>
         </div>
