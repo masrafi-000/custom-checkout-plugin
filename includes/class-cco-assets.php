@@ -44,6 +44,7 @@ class CCO_Assets {
             'nonce'        => wp_create_nonce( 'wc_store_api' ),     // WC Store API nonce
             'ajaxNonce'    => wp_create_nonce( 'cco_ajax' ),         // our own AJAX nonce
             'currency'     => get_woocommerce_currency_symbol(),
+            'currencyCode' => get_woocommerce_currency(),            // e.g. "AUD", "USD"
             'i18n'         => [
                 'placing_order'  => __( 'Placing order…', 'custom-checkout' ),
                 'order_failed'   => __( 'Order failed. Please try again.', 'custom-checkout' ),

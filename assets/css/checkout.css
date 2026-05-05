@@ -220,6 +220,28 @@ body.cco-checkout-body {
     transform: rotate(45deg) !important;
 }
 
+/* ── Billing Address Panel (shown when checkbox is ticked) ── */
+#cco-shipping-fields {
+    overflow: hidden !important; /* required for jQuery slideToggle */
+}
+.cco-shipping-fields-inner {
+    border-top: 1px dashed var(--cco-border) !important;
+    margin-top: 4px !important;
+    padding-top: 20px !important;
+    background: #fafbfc !important;
+    border-radius: var(--cco-radius) !important;
+    padding: 20px !important;
+    margin-top: 12px !important;
+}
+.cco-shipping-fields-title {
+    font-size: 15px !important;
+    font-weight: 600 !important;
+    color: var(--cco-text-main) !important;
+    margin: 0 0 16px !important;
+    padding-bottom: 10px !important;
+    border-bottom: 1px solid var(--cco-border) !important;
+}
+
 /* ── Shipping Card ── */
 .cco-shipping-method-card {
     border: 1px solid var(--cco-primary) !important;
@@ -400,3 +422,76 @@ body.cco-checkout-body {
 #funnelkit-cart-container {
     display: none !important;
 }
+
+/* ── Coupon Tag (applied coupon badge in totals) ── */
+.cco-coupon-tag {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    background: #f0fff4 !important;
+    border: 1px solid #9ae6b4 !important;
+    color: #276749 !important;
+    font-size: 11px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.05em !important;
+    padding: 2px 8px !important;
+    border-radius: 4px !important;
+    margin-left: 8px !important;
+    vertical-align: middle !important;
+}
+
+.cco-remove-coupon {
+    background: none !important;
+    border: none !important;
+    color: #276749 !important;
+    font-size: 13px !important;
+    cursor: pointer !important;
+    padding: 0 !important;
+    line-height: 1 !important;
+    opacity: 0.7 !important;
+    transition: opacity 0.2s !important;
+}
+.cco-remove-coupon:hover {
+    opacity: 1 !important;
+    color: #c53030 !important;
+}
+
+/* ── Discount Row ── */
+.cco-discount-row .cco-discount-amount {
+    color: #16a34a !important;
+    font-weight: 600 !important;
+}
+
+.cco-weight-bold { font-weight: 600 !important; }
+
+/* ── Individual Tax Rows ── */
+.cco-tax-row {
+    color: var(--cco-text-muted) !important;
+    font-size: 13px !important;
+}
+.cco-tax-row .cco-tax-label {
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+}
+.cco-tax-row .cco-tax-label::before {
+    content: "" !important;
+    display: inline-block !important;
+    width: 6px !important;
+    height: 6px !important;
+    border-radius: 50% !important;
+    background: var(--cco-primary) !important;
+    opacity: 0.6 !important;
+    flex-shrink: 0 !important;
+}
+
+/* Compound taxes (applied on top of other taxes) get a slight indent */
+.cco-tax-compound {
+    padding-left: 12px !important;
+}
+.cco-tax-compound .cco-tax-label::before {
+    background: var(--cco-text-muted) !important;
+    width: 4px !important;
+    height: 4px !important;
+}
+

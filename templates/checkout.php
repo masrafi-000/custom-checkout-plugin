@@ -130,7 +130,40 @@ if ( WC()->cart->is_empty() ) {
                         <input type="checkbox" id="cco-ship-to-different">
                         <span>My billing address is different from my shipping address</span>
                     </label>
-                    <div id="cco-shipping-fields" style="display:none;"></div>
+
+                    <div id="cco-shipping-fields" style="display:none;">
+                        <div class="cco-shipping-fields-inner">
+                            <h4 class="cco-shipping-fields-title">Billing address</h4>
+
+                            <div class="cco-field">
+                                <select id="cco-ship-country">
+                                    <?php
+                                    foreach ( $countries as $code => $name ) {
+                                        printf('<option value="%s"%s>%s</option>', esc_attr($code), selected($code, $default, false), esc_html($name));
+                                    }
+                                    ?>
+                                </select>
+                            </div>
+
+                            <div class="cco-row">
+                                <div class="cco-field"><input type="text" id="cco-ship-first-name" placeholder="First name"></div>
+                                <div class="cco-field"><input type="text" id="cco-ship-last-name" placeholder="Last name"></div>
+                            </div>
+
+                            <div class="cco-field"><input type="text" id="cco-ship-address1" placeholder="Address"></div>
+                            <div class="cco-field"><input type="text" id="cco-ship-address2" placeholder="Apartment, suite, etc. (optional)"></div>
+
+                            <div class="cco-row cco-row--three">
+                                <div class="cco-field"><input type="text" id="cco-ship-city" placeholder="City"></div>
+                                <div class="cco-field">
+                                    <select id="cco-ship-state">
+                                        <option value="">State</option>
+                                    </select>
+                                </div>
+                                <div class="cco-field"><input type="text" id="cco-ship-postcode" placeholder="ZIP code"></div>
+                            </div>
+                        </div>
+                    </div>
                 </section>
 
                 <!-- Shipping Method -->

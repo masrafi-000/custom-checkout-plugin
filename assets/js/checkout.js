@@ -76,6 +76,60 @@
     }
 
     // ---------------------------------------------------------------
+    // Country → State
+    // ---------------------------------------------------------------
+
+    const statesCache = {}; // Keyed by country code — avoids duplicate fetches.
+
+    async function populateStates( countryCode, $stateSelect ) {
+        if ( ! countryCode ) return;
+
+        // Show a loading placeholder while fetching.
+        $stateSelect.empty().append( '<option value="">Loading…</option>' );
+        const $row = $stateSelect.closest( '.cco-field' );
+
+        try {
+            // Use cached data if available.
+            if ( ! statesCache[ countryCode ] ) {
+                statesCache[ countryCode ] = await apiCall(
+                    `${apiBase}/states?country=${encodeURIComponent( countryCode )}`
+                );
+            }
+
+            const states = statesCache[ countryCode ];
+
+            if ( ! states || states.length === 0 ) {
+                // Country has no states — hide the dropdown entirely.
+                $stateSelect.empty();
+                $row.hide();
+                return;
+            }
+
+            $row.show();
+            $stateSelect.empty().append( '<option value="">Select state / province…</option>' );
+            states.forEach( s => {
+                $stateSelect.append(
+                    `<option value="${s.code}">${s.name}</option>`
+                );
+            } );
+
+        } catch ( err ) {
+            console.error( 'Failed to load states:', err );
+            $stateSelect.empty().append( '<option value="">State</option>' );
+        }
+    }
+
+    // Delivery country → billing state dropdown.
+    $( '#cco-country' ).on( 'change', function () {
+        populateStates( $( this ).val(), $( '#cco-state' ) );
+    } );
+
+    // Billing-address panel country → billing state dropdown.
+    $( '#cco-ship-country' ).on( 'change', function () {
+        populateStates( $( this ).val(), $( '#cco-ship-state' ) );
+    } );
+
+    // ---------------------------------------------------------------
     // 1. Cart Summary
     // ---------------------------------------------------------------
 
@@ -117,26 +171,77 @@
     function renderCartTotals( data ) {
         let html = `
             <div class="cco-totals-row">
-                <span>Subtotal - ${data.item_count} items</span>
+                <span>Subtotal &ndash; ${data.item_count} item${data.item_count !== 1 ? 's' : ''}</span>
                 <span class="cco-weight-bold">${fmt( data.subtotal )}</span>
             </div>
+        `;
+
+        // Show each applied coupon as a discount row.
+        if ( data.coupon_data && data.coupon_data.length ) {
+            data.coupon_data.forEach( c => {
+                html += `
+                    <div class="cco-totals-row cco-discount-row">
+                        <span>
+                            Discount
+                            <span class="cco-coupon-tag">
+                                ${c.label}
+                                <button type="button" class="cco-remove-coupon" data-code="${c.code}" title="Remove coupon">&#x2715;</button>
+                            </span>
+                        </span>
+                        <span class="cco-discount-amount">-${fmt( c.amount )}</span>
+                    </div>
+                `;
+            } );
+        }
+
+        html += `
             <div class="cco-totals-row">
                 <span>Shipping</span>
                 <span>${ data.shipping_total > 0 ? fmt(data.shipping_total) : 'Free' }</span>
             </div>
-            <div class="cco-totals-row">
-                <span>Estimated taxes</span>
-                <span>${fmt( data.tax_total )}</span>
-            </div>
+        `;
+
+        // Render each tax rate as its own named row (GST, PST, Federal, etc.).
+        // tax_lines comes from WC_Cart::get_tax_totals() which returns one entry
+        // per distinct tax rate configured in WooCommerce → matches the cart page.
+        if ( data.tax_enabled ) {
+            if ( data.tax_lines && data.tax_lines.length ) {
+                data.tax_lines.forEach( tax => {
+                    const compoundClass = tax.is_compound ? ' cco-tax-compound' : '';
+                    html += `
+                        <div class="cco-totals-row cco-tax-row${compoundClass}">
+                            <span class="cco-tax-label">${tax.label}</span>
+                            <span>${fmt( tax.amount )}</span>
+                        </div>
+                    `;
+                } );
+            } else {
+                // Fallback: no itemised lines yet (before calculate_totals runs).
+                html += `
+                    <div class="cco-totals-row cco-tax-row">
+                        <span class="cco-tax-label">Estimated taxes</span>
+                        <span>${fmt( data.tax_total || 0 )}</span>
+                    </div>
+                `;
+            }
+        }
+
+        // Use server-reported currency code (strip symbol to just letters).
+        const currencyCode = window.CCO.currencyCode || 'AUD';
+
+        html += `
             <div class="cco-totals-row cco-totals-row--total">
                 <span class="cco-total-label">Total</span>
                 <span class="cco-total-price">
-                    <small class="cco-currency-code">AUD</small>${fmt( data.total )}
+                    <small class="cco-currency-code">${currencyCode}</small>${fmt( data.total )}
                 </span>
             </div>
         `;
+
         $( '#cco-cart-totals' ).html( html );
     }
+
+
 
     // ---------------------------------------------------------------
     // 2. Coupon
@@ -146,12 +251,33 @@
         const code = $( '#cco-coupon-input' ).val().trim();
         if ( ! code ) return;
         clearNotice();
+        const $btn = $( '#cco-apply-coupon' );
+        $btn.prop( 'disabled', true ).text( 'Applying…' );
         try {
-            await apiCall( `${storeApiBase}/cart/apply-coupon`, {
+            const res = await apiCall( `${apiBase}/apply-coupon`, {
                 method: 'POST',
                 body: JSON.stringify( { code } )
             } );
-            showNotice( 'Coupon applied!', 'success' );
+            showNotice( res.message || 'Coupon applied!', 'success' );
+            $( '#cco-coupon-input' ).val( '' );
+            loadCart();
+        } catch ( err ) {
+            showNotice( err.message );
+        } finally {
+            $btn.prop( 'disabled', false ).text( 'Apply' );
+        }
+    } );
+
+    // Remove coupon (delegated – button is injected dynamically).
+    $( '#cco-cart-totals' ).on( 'click', '.cco-remove-coupon', async function () {
+        const code = $( this ).data( 'code' );
+        clearNotice();
+        try {
+            await apiCall( `${apiBase}/remove-coupon`, {
+                method: 'POST',
+                body: JSON.stringify( { code } )
+            } );
+            showNotice( 'Coupon removed.', 'success' );
             loadCart();
         } catch ( err ) {
             showNotice( err.message );
@@ -161,6 +287,10 @@
     // ---------------------------------------------------------------
     // 3. Address Sync
     // ---------------------------------------------------------------
+
+    function isShipToDifferent() {
+        return $( '#cco-ship-to-different' ).is( ':checked' );
+    }
 
     function collectAddress() {
         return {
@@ -177,14 +307,39 @@
         };
     }
 
+    function collectShippingAddress() {
+        if ( ! isShipToDifferent() ) {
+            // Checkbox not ticked — shipping = billing.
+            return collectAddress();
+        }
+        return {
+            first_name: $( '#cco-ship-first-name' ).val() || $( '#cco-first-name' ).val(),
+            last_name:  $( '#cco-ship-last-name'  ).val() || $( '#cco-last-name'  ).val(),
+            address_1:  $( '#cco-ship-address1'   ).val(),
+            address_2:  $( '#cco-ship-address2'   ).val(),
+            city:       $( '#cco-ship-city'        ).val(),
+            state:      $( '#cco-ship-state'       ).val(),
+            postcode:   $( '#cco-ship-postcode'    ).val(),
+            country:    $( '#cco-ship-country'     ).val(),
+            email:      $( '#cco-email'            ).val(),
+            phone:      $( '#cco-phone'            ).val(),
+        };
+    }
+
+    // Toggle the billing-address panel.
+    $( '#cco-ship-to-different' ).on( 'change', function () {
+        $( '#cco-shipping-fields' ).slideToggle( 300 );
+        syncAddress(); // Re-sync so WC knows the new shipping address.
+    } );
+
     const syncAddress = debounce( async function() {
         try {
             $( '.cco-summary-card' ).addClass( 'cco-is-loading' );
             await apiCall( `${storeApiBase}/cart/update-customer`, {
                 method: 'POST',
                 body: JSON.stringify( {
-                    billing_address: collectAddress(),
-                    shipping_address: collectAddress() // Always sync for now
+                    billing_address:  collectAddress(),
+                    shipping_address: collectShippingAddress(),
                 } )
             } );
             loadCart();
@@ -240,8 +395,8 @@
 
         const payload = {
             billing:      collectAddress(),
-            shipping:     collectAddress(),
-            payment_data: {}, 
+            shipping:     collectShippingAddress(),
+            payment_data: {},
         };
 
         try {
@@ -263,6 +418,18 @@
     $( function () {
         loadCart();
         startTimer( 300 ); // 5 minutes
+
+        // Populate states for the default (pre-selected) country on both dropdowns.
+        const defaultCountry = $( '#cco-country' ).val();
+        if ( defaultCountry ) {
+            populateStates( defaultCountry, $( '#cco-state' ) );
+        }
+        // Billing address panel starts hidden; populate when it becomes visible.
+        $( '#cco-ship-to-different' ).one( 'change', function () {
+            if ( $( this ).is( ':checked' ) ) {
+                populateStates( $( '#cco-ship-country' ).val(), $( '#cco-ship-state' ) );
+            }
+        } );
     } );
 
 } )( jQuery );
