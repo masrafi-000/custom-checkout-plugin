@@ -370,6 +370,28 @@ body.cco-checkout-body {
   font-size: 12px !important;
   color: var(--cco-text-muted) !important;
 }
+.cco-payment-logos {
+  display: flex !important;
+  gap: 10px !important;
+  margin-top: 8px !important;
+  flex-wrap: wrap !important;
+}
+.cco-payment-logos img {
+  height: 24px !important;
+  width: auto !important;
+  object-fit: contain !important;
+}
+
+.cco-footer-payment-logos {
+  display: flex !important;
+  gap: 8px !important;
+  align-items: center !important;
+}
+.cco-footer-payment-logos img {
+  height: 18px !important;
+  width: auto !important;
+  object-fit: contain !important;
+}
 
 .cco-payment-details {
   background: #f8fafc !important;
@@ -564,6 +586,7 @@ body.cco-checkout-body {
   color: var(--cco-text-muted) !important;
   margin-top: 12px !important;
   display: flex !important;
+  flex-wrap: wrap !important;
   align-items: center !important;
   justify-content: center !important;
   gap: 8px !important;

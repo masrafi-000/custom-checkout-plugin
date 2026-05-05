@@ -195,6 +195,13 @@ if ( WC()->cart->is_empty() ) {
                                 <div class="cco-payment-text">
                                     <strong>Pay with Card</strong>
                                     <span>Complete your payment securely via Bankful</span>
+                                    <!-- <div class="cco-payment-logos">
+                                        <img src="<?php echo esc_url( CCO_PLUGIN_URL . 'assets/images/Visa_Inc.-Logo.wine.png' ); ?>" alt="Visa">
+                                        <img src="<?php echo esc_url( CCO_PLUGIN_URL . 'assets/images/Mastercard-Logo.wine.png' ); ?>" alt="Mastercard">
+                                        <img src="<?php echo esc_url( CCO_PLUGIN_URL . 'assets/images/American_Express-Logo.wine.png' ); ?>" alt="Amex">
+                                        <img src="<?php echo esc_url( CCO_PLUGIN_URL . 'assets/images/Apple_Inc.-Logo.wine.png' ); ?>" alt="Apple Pay">
+                                        <img src="<?php echo esc_url( CCO_PLUGIN_URL . 'assets/images/Google_Pay-Logo.wine.png' ); ?>" alt="Google Pay">
+                                    </div> -->
                                 </div>
                             </div>
                         </label>
@@ -233,9 +240,17 @@ if ( WC()->cart->is_empty() ) {
                         <span class="cco-btn-text">Complete order</span>
                         <span class="cco-btn-spinner" style="display:none;" aria-hidden="true">⏳</span>
                     </button>
-                    <p class="cco-secure-footer">
+                    <div class="cco-secure-footer">
                         🔒 Secure checkout powered by <img src="<?php echo esc_url( CCO_PLUGIN_URL . 'assets/images/shop.png' ); ?>" alt="TagadaPay" class="cco-secure-logo">
-                    </p>
+                        <span style="margin: 0 10px; opacity: 0.3;">|</span>
+                        <div class="cco-footer-payment-logos">
+                            <img src="<?php echo esc_url( CCO_PLUGIN_URL . 'assets/images/Visa_Inc.-Logo.wine.png' ); ?>" alt="Visa">
+                            <img src="<?php echo esc_url( CCO_PLUGIN_URL . 'assets/images/Mastercard-Logo.wine.png' ); ?>" alt="Mastercard">
+                            <img src="<?php echo esc_url( CCO_PLUGIN_URL . 'assets/images/American_Express-Logo.wine.png' ); ?>" alt="Amex">
+                            <img src="<?php echo esc_url( CCO_PLUGIN_URL . 'assets/images/Apple_Inc.-Logo.wine.png' ); ?>" alt="Apple Pay">
+                            <img src="<?php echo esc_url( CCO_PLUGIN_URL . 'assets/images/Google_Pay-Logo.wine.png' ); ?>" alt="Google Pay">
+                        </div>
+                    </div>
                 </div>
 
                 <footer class="cco-footer-links">
