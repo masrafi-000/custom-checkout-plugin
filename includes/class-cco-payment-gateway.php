@@ -164,8 +164,8 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
 
         // Bankful API uses application/x-www-form-urlencoded and body-based auth.
         $payload = [
-            'req_username'     => $this->api_key,
-            'req_password'     => $this->secret_key,
+            'req_username'     => trim( (string) $this->api_key ),
+            'req_password'     => trim( (string) $this->secret_key ),
             'transaction_type' => 'CAPTURE',
             'amount'           => number_format( (float) $order->get_total(), 2, '.', '' ),
             'request_currency' => 'AUD',
@@ -220,12 +220,12 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
             parse_str( $response_body, $body_obj );
         }
 
-        // Standardize status checks.
-        $status_raw = $body_obj['status'] ?? $body_obj['result'] ?? $body_obj['response'] ?? $body_obj['response_code'] ?? '';
-        $status     = strtolower( (string) $status_raw );
-        $txn_id     = $body_obj['transaction_id'] ?? $body_obj['id'] ?? $body_obj['txn_id'] ?? '';
+        // Standardize status checks (Bankful uses uppercase for some fields).
+        $status_raw = $body_obj['TRANS_STATUS_NAME'] ?? $body_obj['status'] ?? $body_obj['result'] ?? $body_obj['response'] ?? $body_obj['response_code'] ?? '';
+        $status     = strtoupper( (string) $status_raw );
+        $txn_id     = $body_obj['TRANS_RECORD_ID'] ?? $body_obj['transaction_id'] ?? $body_obj['id'] ?? $body_obj['txn_id'] ?? '';
 
-        $success_keywords = [ 'approved', 'success', 'captured', 'paid', 'completed', '1' ];
+        $success_keywords = [ 'APPROVED', 'SUCCESS', 'CAPTURED', 'PAID', 'COMPLETED', '1' ];
         $is_success = in_array( $status, $success_keywords, true );
 
         // Even if status string is missing, check HTTP code and presence of a transaction ID.
@@ -247,7 +247,7 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
         }
 
         // Payment failed or was rejected.
-        $error_msg = $body_obj['message'] ?? $body_obj['error'] ?? $body_obj['error_message'] ?? $body_obj['response_text'] ?? $body_obj['response_msg'] ?? $body_obj['reason'] ?? $body_obj['desc'] ?? '';
+        $error_msg = $body_obj['API_ADVICE'] ?? $body_obj['message'] ?? $body_obj['error'] ?? $body_obj['error_message'] ?? $body_obj['response_text'] ?? $body_obj['response_msg'] ?? $body_obj['reason'] ?? $body_obj['desc'] ?? '';
         
         if ( empty( $error_msg ) ) {
             // If we can't find a specific error field, show the raw response (truncated for safety) to see what's happening.
