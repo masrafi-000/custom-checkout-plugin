@@ -39,11 +39,19 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
                 'label'   => __( 'Enable Bankful Payment', 'custom-checkout' ),
                 'default' => 'yes',
             ],
-            'test_mode'   => [
+            'test_mode'       => [
                 'title'   => __( 'Test Mode', 'custom-checkout' ),
                 'type'    => 'checkbox',
                 'label'   => __( 'Enable Sandbox/Test Mode', 'custom-checkout' ),
                 'default' => 'no',
+            ],
+            'simulation_mode' => [
+                'title'       => __( 'Simulation Mode', 'custom-checkout' ),
+                'type'        => 'checkbox',
+                'label'       => __( 'Simulate payments locally (skip real API call — for localhost/dev only)', 'custom-checkout' ),
+                'default'     => 'no',
+                'description' => __( 'When enabled, all payments instantly succeed without contacting Bankful. <strong>Disable before going live.</strong>', 'custom-checkout' ),
+                'desc_tip'    => false,
             ],
             'title'       => [
                 'title'   => __( 'Title', 'custom-checkout' ),
@@ -120,37 +128,31 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
             }
         }
 
-        $card_num   = str_replace(' ', '', $params['bankful_card_num'] ?? '');
+        $card_num   = str_replace( ' ', '', $params['bankful_card_num'] ?? '' );
         $expiry_str = $params['bankful_card_expiry'] ?? '';
-        $expiry     = explode('/', $expiry_str);
+        $expiry     = explode( '/', $expiry_str );
         $cvc        = $params['bankful_card_cvc'] ?? '';
 
-        if ( empty($card_num) || count($expiry) < 2 || empty($cvc) ) {
+        if ( empty( $card_num ) || count( $expiry ) < 2 || empty( $cvc ) ) {
             wc_add_notice( 'Invalid credit card details.', 'error' );
             return [ 'result' => 'failure' ];
         }
 
-        // ---------------------------------------------------------------
-        // LOCAL DEV BYPASS — skips real API call on localhost/127.0.0.1
-        // This is automatically skipped on any live/staging server.
-        // ---------------------------------------------------------------
-        $host = $_SERVER['HTTP_HOST'] ?? '';
-        if ( in_array( $host, [ 'localhost', '127.0.0.1' ], true ) || str_starts_with( $host, 'localhost:' ) ) {
-            // Simulate a successful payment for local testing.
-            $order->set_transaction_id( 'LOCAL-TEST-' . time() );
+        // ── Simulation Mode (explicit gateway setting — not host-based) ──
+        if ( 'yes' === $this->get_option( 'simulation_mode' ) ) {
+            $order->set_transaction_id( 'SIM-' . time() );
             $order->payment_complete();
-            $order->add_order_note( '[LOCAL TEST] Payment simulated successfully. No real transaction was made.' );
+            $order->add_order_note( '[SIMULATION] Payment simulated. No real transaction was made.' );
             $order->save();
-            WC()->cart->empty_cart();
             return [
                 'result'   => 'success',
                 'redirect' => $this->get_return_url( $order ),
             ];
         }
-        // ---------------------------------------------------------------
 
+        // ── Determine API endpoint ──
         $api_url = $this->test_mode
-            ? 'https://api.sandbox.bankful.com/v1/transaction' 
+            ? 'https://api.sandbox.bankful.com/v1/transaction'
             : 'https://api.bankful.com/v1/transaction';
 
         $year = trim( $expiry[1] );
@@ -158,7 +160,7 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
             $year = '20' . $year;
         }
 
-        $payload = array(
+        $payload = [
             'amount'          => number_format( (float) $order->get_total(), 2, '.', '' ),
             'currency'        => get_woocommerce_currency(),
             'card_number'     => $card_num,
@@ -166,51 +168,70 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
             'expiry_year'     => $year,
             'cvv'             => $cvc,
             'order_id'        => (string) $order_id,
-            'billing_details' => array(
+            'billing_details' => [
                 'first_name' => $order->get_billing_first_name(),
                 'last_name'  => $order->get_billing_last_name(),
                 'email'      => $order->get_billing_email(),
-            )
-        );
+                'address'    => $order->get_billing_address_1(),
+                'city'       => $order->get_billing_city(),
+                'state'      => $order->get_billing_state(),
+                'postcode'   => $order->get_billing_postcode(),
+                'country'    => $order->get_billing_country(),
+                'phone'      => $order->get_billing_phone(),
+            ],
+        ];
 
-        $response = wp_remote_post( $api_url, array(
-            'method'    => 'POST',
-            'headers'   => array(
+        error_log( 'Bankful: Sending to ' . $api_url . ' | Order #' . $order_id . ' | Amount: ' . $payload['amount'] );
+
+        $response = wp_remote_post( $api_url, [
+            'method'  => 'POST',
+            'headers' => [
                 'Authorization' => 'Basic ' . base64_encode( $this->api_key . ':' . $this->secret_key ),
                 'Content-Type'  => 'application/json',
-            ),
-            'body'      => json_encode( $payload ),
-            'timeout'   => 45,
-        ));
+                'Accept'        => 'application/json',
+            ],
+            'body'    => wp_json_encode( $payload ),
+            'timeout' => 45,
+        ] );
 
         if ( is_wp_error( $response ) ) {
-            wc_add_notice( 'Connection error with payment provider: ' . $response->get_error_message(), 'error' );
+            $err = $response->get_error_message();
+            error_log( 'Bankful cURL Error: ' . $err );
+            $order->add_order_note( 'Bankful connection error: ' . $err );
+            wc_add_notice( 'Connection error with payment provider: ' . $err, 'error' );
             return [ 'result' => 'failure' ];
         }
 
+        $http_code     = wp_remote_retrieve_response_code( $response );
         $response_body = wp_remote_retrieve_body( $response );
         $body          = json_decode( $response_body );
 
-        // Log the response for debugging production/test issues.
-        error_log( 'Bankful API Response: ' . $response_body );
+        // Full response log for sandbox debugging.
+        error_log( 'Bankful HTTP ' . $http_code . ' Response: ' . $response_body );
+        $order->add_order_note( 'Bankful raw response (HTTP ' . $http_code . '): ' . $response_body );
 
-        if ( isset($body->status) && $body->status == 'approved' ) {
-            $order->set_transaction_id( $body->transaction_id );
+        // Accept any common success status from the gateway.
+        $success_statuses = [ 'approved', 'success', 'captured', 'paid', 'completed' ];
+        $status_value     = strtolower( $body->status ?? $body->result ?? '' );
+
+        if ( in_array( $status_value, $success_statuses, true ) || ( $http_code >= 200 && $http_code < 300 && ! empty( $body->transaction_id ?? $body->id ?? '' ) ) ) {
+            $txn_id = $body->transaction_id ?? $body->id ?? ( 'BF-' . $order_id );
+            $order->set_transaction_id( $txn_id );
             $order->payment_complete();
-            $order->add_order_note( 'Bankful payment successful. Transaction ID: ' . $body->transaction_id );
+            $order->add_order_note( 'Bankful payment successful. Transaction ID: ' . $txn_id );
             $order->save();
-
             WC()->cart->empty_cart();
-
-            return array(
+            return [
                 'result'   => 'success',
                 'redirect' => $this->get_return_url( $order ),
-            );
-        } else {
-            $msg = $body->message ?? 'Payment rejected.';
-            wc_add_notice( 'Payment rejected: ' . $msg, 'error' );
-            return [ 'result' => 'failure' ];
+            ];
         }
+
+        // Payment rejected — surface the exact reason.
+        $msg = $body->message ?? $body->error ?? $body->error_message ?? 'Payment rejected by provider (HTTP ' . $http_code . ').';
+        error_log( 'Bankful Payment Failed: ' . $msg );
+        wc_add_notice( $msg, 'error' );
+        return [ 'result' => 'failure' ];
     }
 
     public function validate_fields() { return true; }
