@@ -239,6 +239,9 @@
         `;
 
         $( '#cco-cart-totals' ).html( html );
+
+        // Console log the total price as requested by the user.
+        console.log( 'Cart Summary Loaded. Total Price: ', data.total );
     }
 
 
@@ -378,7 +381,7 @@
         $( '.cco-payment-method' ).removeClass( 'cco-payment-method--active' );
         $( this ).closest( '.cco-payment-method' ).addClass( 'cco-payment-method--active' );
         
-        if ( val === 'cco_card' ) {
+        if ( val === 'bankful' ) {
             $( '#cco-card-element' ).slideDown();
         } else {
             $( '#cco-card-element' ).slideUp();
@@ -393,11 +396,22 @@
         clearNotice();
         setLoading( true );
 
+        const paymentMethod = $( 'input[name="payment_method"]:checked' ).val();
         const payload = {
-            billing:      collectAddress(),
-            shipping:     collectShippingAddress(),
-            payment_data: {},
+            payment_method: paymentMethod,
+            billing:        collectAddress(),
+            shipping:       collectShippingAddress(),
+            payment_data:   {},
         };
+
+        // If paying with Bankful, collect the card data.
+        if ( paymentMethod === 'bankful' ) {
+            payload.payment_data = {
+                bankful_card_num:    $( '#bankful-card-num' ).val().replace(/\s/g, ''),
+                bankful_card_expiry: $( '#bankful-card-expiry' ).val().trim(),
+                bankful_card_cvc:    $( '#bankful-card-cvc' ).val().trim(),
+            };
+        }
 
         try {
             const data = await apiCall( `${apiBase}/place-order`, {
@@ -406,7 +420,7 @@
             } );
             window.location.href = data.redirect_url;
         } catch ( err ) {
-            showNotice( 'Order failed. Please check your details.' );
+            showNotice( err.message || 'Order failed. Please check your details.' );
             setLoading( false );
         }
     } );

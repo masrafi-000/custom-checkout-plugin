@@ -16,6 +16,25 @@ class CCO_API {
 
     public static function init() {
         add_action( 'rest_api_init', [ __CLASS__, 'register_routes' ] );
+
+        // Add static 10% GST fee to the cart.
+        // This ensures the tax is calculated correctly for both the UI and the final order.
+        add_action( 'woocommerce_cart_calculate_fees', [ __CLASS__, 'add_static_tax_fee' ] );
+    }
+
+    /**
+     * Adds a flat 10% GST fee based on the taxable subtotal.
+     */
+    public static function add_static_tax_fee( $cart ) {
+        if ( is_admin() && ! defined( 'DOING_AJAX' ) ) {
+            return;
+        }
+
+        $taxable_amount = (float) $cart->get_subtotal() - (float) $cart->get_discount_total();
+        if ( $taxable_amount > 0 ) {
+            $gst_amount = round( $taxable_amount * 0.10, 2 );
+            $cart->add_fee( __( 'GST (10%)', 'custom-checkout' ), $gst_amount );
+        }
     }
 
     public static function register_routes() {
@@ -188,33 +207,28 @@ class CCO_API {
         $prefix      = $has_address ? '' : 'Estimated ';
 
 
-        // ── Static 10% Tax Calculation ──────────────────────────────────
-        // The user requested to bypass native WC tax lookups and just apply
-        // a flat 10% tax for the checkout page.
-        $taxable_amount = (float) $cart->get_subtotal() - (float) $cart->get_discount_total();
-        $static_tax     = round( $taxable_amount * 0.10, 2 );
-
-        // Update the itemised tax lines for the UI.
-        $tax_lines = [
-            [
-                'label'       => $prefix . 'GST (10%)',
-                'amount'      => $static_tax,
+        // ── Tax/GST Handling ───────────────────────────────────────────
+        // We now use a native WC fee (see add_static_tax_fee) to handle the 
+        // 10% GST. This ensures it's included in WC's own totals and order 
+        // creation. We display it in the 'tax_lines' array for the UI.
+        $tax_lines = [];
+        foreach ( $cart->get_fees() as $fee ) {
+            $tax_lines[] = [
+                'label'       => $prefix . $fee->name,
+                'amount'      => (float) $fee->total,
                 'is_compound' => false,
-            ]
-        ];
-
-        // Recalculate total manually to include the static tax.
-        $final_total = $taxable_amount + (float) $cart->get_shipping_total() + $static_tax;
+            ];
+        }
 
         return new WP_REST_Response( [
             'items'              => $items,
             'subtotal'           => (float) $cart->get_subtotal(),
             'discount_total'     => (float) $cart->get_discount_total(),
             'shipping_total'     => (float) $cart->get_shipping_total(),
-            'tax_total'          => $static_tax,
+            'tax_total'          => (float) array_sum( wp_list_pluck( $tax_lines, 'amount' ) ),
             'tax_lines'          => $tax_lines,
-            'tax_enabled'        => true, // Force true for our static tax
-            'total'              => (float) $final_total,
+            'tax_enabled'        => true,
+            'total'              => (float) $cart->get_total( 'edit' ),
             'currency_symbol'    => get_woocommerce_currency_symbol(),
             'needs_shipping'     => $cart->needs_shipping(),
             'shipping_rates'     => $shipping_rates,
@@ -315,11 +329,10 @@ class CCO_API {
 
         // Build payload for WC Store API.
         $payload = [
-            'payment_method'  => 'cco_custom',
+            'payment_method'  => sanitize_text_field( $body['payment_method'] ?? 'bankful' ),
             'billing_address' => self::sanitize_address( $body['billing'] ?? [] ),
             'shipping_address'=> self::sanitize_address( $body['shipping'] ?? $body['billing'] ?? [] ),
             'customer_note'   => sanitize_textarea_field( $body['order_note'] ?? '' ),
-            // Pass any extra payment data your gateway needs.
             'payment_data'    => $body['payment_data'] ?? [],
         ];
 

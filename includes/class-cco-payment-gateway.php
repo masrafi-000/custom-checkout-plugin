@@ -2,12 +2,7 @@
 /**
  * CCO_Payment_Gateway
  *
- * A WooCommerce payment gateway registered under the gateway ID "cco_custom".
- * This gateway is available store-wide (including default checkout) but will
- * primarily be used by our custom checkout plugin.
- *
- * Replace the process_payment() method body with your real payment logic
- * (Stripe, SSLCommerz, bKash, Nagad, etc.)
+ * Bankful Payment Gateway integration.
  */
 
 defined( 'ABSPATH' ) || exit;
@@ -15,18 +10,19 @@ defined( 'ABSPATH' ) || exit;
 class CCO_Payment_Gateway extends WC_Payment_Gateway {
 
     public function __construct() {
-        $this->id                 = 'cco_custom';
-        $this->method_title       = __( 'Custom Checkout Payment', 'custom-checkout' );
-        $this->method_description = __( 'Custom payment gateway used by the Custom Checkout plugin.', 'custom-checkout' );
-        $this->has_fields         = false;   // We render fields ourselves in the JS checkout.
+        $this->id                 = 'bankful';
+        $this->method_title       = __( 'Bankful Payment', 'custom-checkout' );
+        $this->method_description = __( 'Accept credit card payments via Bankful.', 'custom-checkout' );
+        $this->has_fields         = true; 
         $this->supports           = [ 'products' ];
 
         $this->init_form_fields();
         $this->init_settings();
 
-        $this->title       = $this->get_option( 'title' );
+        $this->title       = $this->get_option( 'title', 'Credit Card (Bankful)' );
         $this->description = $this->get_option( 'description' );
-        $this->enabled     = $this->get_option( 'enabled' );
+        $this->api_key     = $this->get_option( 'api_key' );
+        $this->api_password = $this->get_option( 'api_password' );
 
         add_action(
             'woocommerce_update_options_payment_gateways_' . $this->id,
@@ -39,73 +35,132 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
             'enabled'     => [
                 'title'   => __( 'Enable/Disable', 'custom-checkout' ),
                 'type'    => 'checkbox',
-                'label'   => __( 'Enable Custom Checkout Payment', 'custom-checkout' ),
+                'label'   => __( 'Enable Bankful Payment', 'custom-checkout' ),
                 'default' => 'yes',
             ],
             'title'       => [
                 'title'   => __( 'Title', 'custom-checkout' ),
                 'type'    => 'text',
-                'default' => __( 'Custom Payment', 'custom-checkout' ),
+                'default' => __( 'Credit Card (Bankful)', 'custom-checkout' ),
             ],
             'description' => [
                 'title'   => __( 'Description', 'custom-checkout' ),
                 'type'    => 'textarea',
-                'default' => __( 'Pay securely via our payment system.', 'custom-checkout' ),
+                'default' => __( 'Pay securely via your credit card.', 'custom-checkout' ),
             ],
             'api_key'     => [
-                'title'       => __( 'API Key', 'custom-checkout' ),
+                'title'       => __( 'API Key/Username', 'custom-checkout' ),
+                'type'        => 'text',
+                'default'     => '',
+            ],
+            'api_password' => [
+                'title'       => __( 'API Password', 'custom-checkout' ),
                 'type'        => 'password',
-                'description' => __( 'Secret key for your payment provider.', 'custom-checkout' ),
                 'default'     => '',
             ],
         ];
     }
 
     /**
-     * Process payment.
-     *
-     * Called by WooCommerce (including via Store API checkout endpoint) after
-     * order creation. Replace the stub below with your real payment provider logic.
-     *
-     * @param int $order_id
-     * @return array
+     * Render payment fields for the checkout page.
      */
-    public function process_payment( $order_id ) {
-        $order   = wc_get_order( $order_id );
-        $api_key = $this->get_option( 'api_key' );
-
-        // ---------------------------------------------------------------
-        // TODO: Replace this block with real payment provider integration.
-        // e.g. call bKash / Nagad / SSLCommerz / Stripe charge API here.
-        //
-        // On success:
-        //   $order->payment_complete( $transaction_id );
-        //   $order->add_order_note( 'Payment captured: ' . $transaction_id );
-        //
-        // On failure:
-        //   wc_add_notice( 'Payment failed: ' . $error_message, 'error' );
-        //   return [ 'result' => 'failure' ];
-        // ---------------------------------------------------------------
-
-        // --- STUB: mark as on-hold and redirect to thank-you page ---
-        $order->update_status(
-            'on-hold',
-            __( 'Awaiting payment confirmation.', 'custom-checkout' )
-        );
-
-        WC()->cart->empty_cart();
-
-        return [
-            'result'   => 'success',
-            'redirect' => $this->get_return_url( $order ),
-        ];
+    public function payment_fields() {
+        if ( $this->description ) {
+            echo wpautop( wptexturize( $this->description ) );
+        }
+        ?>
+        <fieldset id="bankful-card-form" class="cco-bankful-fields">
+            <div class="cco-field">
+                <label>Card Number <span class="required">*</span></label>
+                <input id="bankful-card-number" type="text" autocomplete="off" name="bankful_card_num" placeholder="0000 0000 0000 0000">
+            </div>
+            <div class="cco-row">
+                <div class="cco-field">
+                    <label>Expiry Date (MM/YY) <span class="required">*</span></label>
+                    <input id="bankful-card-expiry" placeholder="MM / YY" type="text" name="bankful_card_expiry">
+                </div>
+                <div class="cco-field">
+                    <label>Card Code (CVC) <span class="required">*</span></label>
+                    <input id="bankful-card-cvc" type="password" name="bankful_card_cvc" placeholder="***">
+                </div>
+            </div>
+        </fieldset>
+        <?php
     }
 
     /**
-     * For Store API: validate payment fields (called before process_payment).
-     * Override to add server-side validation of any payment data you collect.
+     * Process payment.
      */
-    public function validate_fields() {
-        return true;
+    public function process_payment( $order_id ) {
+        $order = wc_get_order( $order_id );
+
+        // Extract payment data from the request.
+        $params = $_POST;
+        if ( empty( $params['bankful_card_num'] ) ) {
+            $json = json_decode( file_get_contents( 'php://input' ), true );
+            $params = $json['payment_data'] ?? [];
+        }
+
+        $card_num   = str_replace(' ', '', $params['bankful_card_num'] ?? '');
+        $expiry_str = $params['bankful_card_expiry'] ?? '';
+        $expiry     = explode('/', $expiry_str);
+        $cvc        = $params['bankful_card_cvc'] ?? '';
+
+        if ( empty($card_num) || count($expiry) < 2 || empty($cvc) ) {
+            wc_add_notice( 'Invalid credit card details.', 'error' );
+            return [ 'result' => 'failure' ];
+        }
+
+        $api_url = 'https://api.bankful.com/v1/transaction';
+
+        $payload = array(
+            'amount'          => $order->get_total(),
+            'currency'        => get_woocommerce_currency(),
+            'card_number'     => $card_num,
+            'expiry_month'    => trim($expiry[0]),
+            'expiry_year'     => trim($expiry[1]),
+            'cvv'             => $cvc,
+            'order_id'        => $order_id,
+            'billing_details' => array(
+                'first_name' => $order->get_billing_first_name(),
+                'last_name'  => $order->get_billing_last_name(),
+                'email'      => $order->get_billing_email(),
+            )
+        );
+
+        $response = wp_remote_post( $api_url, array(
+            'method'    => 'POST',
+            'headers'   => array(
+                'Authorization' => 'Basic ' . base64_encode( $this->api_key . ':' . $this->api_password ),
+                'Content-Type'  => 'application/json',
+            ),
+            'body'      => json_encode( $payload ),
+            'timeout'   => 45,
+        ));
+
+        if ( is_wp_error( $response ) ) {
+            wc_add_notice( 'Connection error with payment provider.', 'error' );
+            return [ 'result' => 'failure' ];
+        }
+
+        $body = json_decode( wp_remote_retrieve_body( $response ) );
+
+        if ( isset($body->status) && $body->status == 'approved' ) {
+            $order->payment_complete();
+            $order->add_order_note( 'Bankful payment successful. Transaction ID: ' . $body->transaction_id );
+
+            WC()->cart->empty_cart();
+
+            return array(
+                'result'   => 'success',
+                'redirect' => $this->get_return_url( $order ),
+            );
+        } else {
+            $msg = $body->message ?? 'Payment rejected.';
+            wc_add_notice( 'Payment rejected: ' . $msg, 'error' );
+            return [ 'result' => 'failure' ];
+        }
     }
+
+    public function validate_fields() { return true; }
 }

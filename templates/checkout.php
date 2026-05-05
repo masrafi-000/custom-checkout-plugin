@@ -189,21 +189,32 @@ if ( WC()->cart->is_empty() ) {
                     
                     <div class="cco-payment-box">
                         <label class="cco-payment-method cco-payment-method--active">
-                            <input type="radio" name="payment_method" value="cco_card" checked>
+                            <input type="radio" name="payment_method" value="bankful" checked>
                             <div class="cco-payment-label-wrap">
                                 <span class="cco-payment-icon">💳</span>
                                 <div class="cco-payment-text">
                                     <strong>Pay with Card</strong>
-                                    <span>Complete your payment</span>
+                                    <span>Complete your payment securely via Bankful</span>
                                 </div>
                             </div>
                         </label>
                         <div id="cco-card-element" class="cco-payment-details">
-                            <!-- Card inputs will go here later -->
-                            <p style="padding: 15px; font-size: 13px; color: #666;">[Card input area will be implemented later]</p>
+                            <div class="cco-bankful-fields-wrap" style="padding: 20px;">
+                                <div class="cco-field">
+                                    <input type="text" id="bankful-card-num" placeholder="Card Number" autocomplete="cc-number">
+                                </div>
+                                <div class="cco-row">
+                                    <div class="cco-field">
+                                        <input type="text" id="bankful-card-expiry" placeholder="MM / YY" autocomplete="cc-exp">
+                                    </div>
+                                    <div class="cco-field">
+                                        <input type="password" id="bankful-card-cvc" placeholder="CVC" autocomplete="cc-csc">
+                                    </div>
+                                </div>
+                            </div>
                         </div>
 
-                        <label class="cco-payment-method">
+                        <!-- <label class="cco-payment-method">
                             <input type="radio" name="payment_method" value="bacs">
                             <div class="cco-payment-label-wrap">
                                 <span class="cco-payment-icon">🏦</span>
@@ -212,7 +223,7 @@ if ( WC()->cart->is_empty() ) {
                                     <span>Card Payments Down for 24hr - Quickest Way To Receive Your Order!</span>
                                 </div>
                             </div>
-                        </label>
+                        </label> -->
                     </div>
                 </section>
 
