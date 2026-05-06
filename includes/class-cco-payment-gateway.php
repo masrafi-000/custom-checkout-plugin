@@ -104,151 +104,189 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
      */
     public function process_payment( $order_id ) {
         $order = wc_get_order( $order_id );
-        if ( ! $order ) {
-            return [ 'result' => 'failure' ];
-        }
+        if ( ! $order ) return [ 'result' => 'failure' ];
 
-        // Extract payment data from the request.
-        // Check global storage first (populated by CCO_API::place_order).
-        $params = $GLOBALS['cco_payment_data'] ?? [];
-
-        if ( empty( $params ) ) {
-            $params = $_POST;
-            if ( empty( $params['bankful_card_num'] ) ) {
-                $json = json_decode( file_get_contents( 'php://input' ), true );
-                $params = $json['payment_data'] ?? [];
-            }
-        }
-
-        $card_num   = str_replace( ' ', '', $params['bankful_card_num'] ?? '' );
+        $params = $GLOBALS['cco_payment_data'] ?? $_POST;
+        $card_num   = str_replace( [ ' ', '-' ], '', $params['bankful_card_num'] ?? '' );
         $expiry_str = $params['bankful_card_expiry'] ?? '';
         $expiry     = explode( '/', $expiry_str );
+        $month      = str_pad( trim( $expiry[0] ?? '' ), 2, '0', STR_PAD_LEFT );
+        $year       = trim( $expiry[1] ?? '' );
+        if ( strlen( $year ) === 2 ) $year = '20' . $year;
         $cvc        = $params['bankful_card_cvc'] ?? '';
 
-        if ( empty( $card_num ) || count( $expiry ) < 2 || empty( $cvc ) ) {
-            wc_add_notice( 'Invalid credit card details.', 'error' );
-            return [ 'result' => 'failure' ];
-        }
-
-
-        // ── Determine API endpoint (Using V2 for better AUD support) ──
         $api_url = $this->test_mode
             ? 'https://api-dev1.bankfulportal.com/api/woocommerce-v2/transaction'
             : 'https://api.paybybankful.com/api/woocommerce-v2/transaction';
 
-        $year = '';
-        $month = '';
+        $bf_access_token = get_option( 'bankful_options_api_access_token' );
+        $bf_public_key   = get_option( 'bankful_options_public_key' );
+        $bf_hash_salt    = get_option( 'bankful_options_hash_salt' );
+        $bf_site_id      = get_option( 'bankful_options_site_id' );
 
-        if ( strpos( $expiry_str, '/' ) !== false ) {
-            $expiry = explode( '/', $expiry_str );
-            $month  = str_pad( trim( $expiry[0] ), 2, '0', STR_PAD_LEFT );
-            $year   = trim( $expiry[1] );
-            if ( strlen( $year ) === 2 ) {
-                $year = '20' . $year;
+        // Fallback: If no token, try to get one now
+        if ( empty( $bf_access_token ) ) {
+            $fresh = $this->get_fresh_token();
+            $bf_access_token = $fresh['token'] ?? '';
+            $bf_public_key   = $fresh['public_key'] ?? $bf_public_key;
+            $bf_hash_salt    = $fresh['salt'] ?? $bf_hash_salt;
+        }
+
+        $payload = [
+            'bf_api_key'        => trim( (string) $this->api_key ),
+            'bf_api_secret'     => trim( (string) $this->secret_key ),
+            'pmt_numb'          => $card_num,
+            'pmt_key'           => $cvc,
+            'pmt_expiry'        => $month . '/' . $year,
+            'request_currency'  => $order->get_currency(),
+            'amount'            => number_format( (float) $order->get_total(), 2, '.', '' ),
+            'cust_fname'        => $order->get_billing_first_name(),
+            'cust_lname'        => $order->get_billing_last_name(),
+            'cust_email'        => $order->get_billing_email(),
+            'bill_addr'         => trim( $order->get_billing_address_1() . ' ' . $order->get_billing_address_2() ),
+            'bill_addr_city'    => $order->get_billing_city(),
+            'bill_addr_zip'     => $order->get_billing_postcode(),
+            'bill_addr_country' => $order->get_billing_country(),
+            'order_id'          => $order_id,
+            'xtl_order_id'      => $order_id,
+            'request_action'    => 'CCAUTHCAP',
+        ];
+
+        if ( ! empty( $bf_site_id ) ) $payload['site_id'] = $bf_site_id;
+
+        if ( ! empty( $bf_public_key ) ) {
+            $payload['pmt_numb']   = $this->encrypt_payload( $card_num, $bf_public_key );
+            $payload['pmt_key']    = $this->encrypt_payload( $cvc, $bf_public_key );
+            $payload['pmt_expiry'] = $this->encrypt_payload( $month . '/' . $year, $bf_public_key );
+        }
+
+        $headers = [ 'Content-Type' => 'application/json' ];
+        if ( ! empty( $bf_hash_salt ) ) $headers['X-Bankful-Hmac-SHA256'] = $this->generate_signature( $payload, $bf_hash_salt );
+        if ( ! empty( $bf_access_token ) ) $headers['Authorization'] = 'Bearer ' . $bf_access_token;
+
+        $response = wp_remote_post( $api_url, [
+            'method'    => 'POST',
+            'headers'   => $headers,
+            'body'      => wp_json_encode( $payload ),
+            'timeout'   => 45,
+            'sslverify' => true,
+        ] );
+
+        $response_body = wp_remote_retrieve_body( $response );
+        $order->add_order_note( 'Bankful Debug Response: ' . $response_body );
+
+        $body_obj = json_decode( $response_body, true );
+        
+        // Final Fallback: If Token was the issue, refresh it once and retry
+        if ( isset( $body_obj['errorMessage'] ) && strpos( $body_obj['errorMessage'], 'Token' ) !== false ) {
+            error_log( 'Bankful: Token invalid, refreshing...' );
+            $fresh = $this->get_fresh_token();
+            if ( ! empty( $fresh['token'] ) ) {
+                $headers['Authorization'] = 'Bearer ' . $fresh['token'];
+                if ( ! empty( $fresh['salt'] ) ) $headers['X-Bankful-Hmac-SHA256'] = $this->generate_signature( $payload, $fresh['salt'] );
+                $response = wp_remote_post( $api_url, [
+                    'method'  => 'POST',
+                    'headers' => $headers,
+                    'body'    => wp_json_encode( $payload ),
+                    'timeout' => 45,
+                ] );
+                $response_body = wp_remote_retrieve_body( $response );
+                $body_obj = json_decode( $response_body, true );
             }
         }
 
-        if ( empty( $month ) || empty( $year ) ) {
-            wc_add_notice( 'Invalid expiry date format. Please use MM/YY.', 'error' );
+        $status = strtoupper( (string) ($body_obj['TRANS_STATUS_NAME'] ?? $body_obj['status'] ?? $body_obj['result'] ?? '') );
+        if ( $status === 'APPROVED' || $status === 'SUCCESS' ) {
+            $order->set_transaction_id( $body_obj['TRANS_RECORD_ID'] ?? $body_obj['transaction_id'] ?? '' );
+            $order->payment_complete();
+            return [ 'result' => 'success', 'redirect' => $this->get_return_url( $order ) ];
+        } else {
+            wc_add_notice( 'Bankful Error: ' . ($body_obj['ERROR_MESSAGE'] ?? $body_obj['errorMessage'] ?? 'Transaction declined.'), 'error' );
             return [ 'result' => 'failure' ];
         }
+    }
 
-        // Bankful API uses application/x-www-form-urlencoded and body-based auth.
-        $payload = [
-            'req_username'     => trim( (string) $this->api_key ),
-            'username'         => trim( (string) $this->api_key ), // Dual field support
-            'req_password'     => trim( (string) $this->secret_key ),
-            'password'         => trim( (string) $this->secret_key ), // Dual field support
-            'transaction_type' => 'CAPTURE',
-            'request_action'   => 'CCAUTHCAP', // V2 Action
-            'amount'           => number_format( (float) $order->get_total(), 2, '.', '' ),
-            'request_currency' => 'AUD', 
-            'pmt_numb'         => $card_num,
-            'pmt_expiry'       => $month . '/' . $year,
-            'pmt_key'          => $cvc,
-            'cust_fname'       => $order->get_billing_first_name(),
-            'cust_lname'       => $order->get_billing_last_name(),
-            'cust_email'       => $order->get_billing_email(),
-            'bill_addr'        => $order->get_billing_address_1(),
-            'bill_addr_city'   => $order->get_billing_city(),
-            'bill_addr_state'  => $order->get_billing_state(),
-            'bill_addr_zip'    => $order->get_billing_postcode(),
-            'bill_addr_country'=> $order->get_billing_country(),
-            'cart_name'        => 'WooCommerce',
-            'xtl_order_id'     => (string) $order_id,
+    /**
+     * Get a fresh Bearer Token from Bankful
+     */
+    private function get_fresh_token() {
+        global $woocommerce;
+        $api_url = 'https://api.paybybankful.com/api/woocommerce-v2/validate-credentials';
+        $params = [
+            'bf_api_key'        => trim( (string) $this->api_key ),
+            'bf_api_secret'     => trim( (string) $this->secret_key ),
+            'site_url'          => get_site_url(),
+            'woo_version'       => $woocommerce->version ?? '8.0.0',
+            'bf_plugin_version' => '3.0.4',
         ];
 
-        $log_payload = $payload;
-        $log_payload['pmt_numb'] = 'XXXX-XXXX-XXXX-' . substr($card_num, -4);
-        $log_payload['pmt_key']  = 'XXX';
-        error_log( 'Bankful Request Payload: ' . json_encode( $log_payload ) );
+        $response = wp_remote_post( $api_url, [ 'body' => $params ] );
+        $body = json_decode( wp_remote_retrieve_body( $response ), true );
 
-        error_log( 'Bankful: Sending JSON to ' . $api_url . ' | Order #' . $order_id );
-
-        $response = wp_remote_post( $api_url, [
-            'method'      => 'POST',
-            'headers'     => [
-                'Content-Type'  => 'application/json',
-                'Accept'        => 'application/json',
-                'cache-control' => 'no-cache',
-            ],
-            'body'        => json_encode( $payload ), 
-            'timeout'     => 45,
-            'sslverify'   => true, 
-        ] );
-
-        if ( is_wp_error( $response ) ) {
-            $err_msg = $response->get_error_message();
-            error_log( 'Bankful Connection Error: ' . $err_msg );
-            wc_add_notice( 'Payment gateway connection error: ' . $err_msg, 'error' );
-            return [ 'result' => 'failure' ];
-        }
-
-        $http_code     = wp_remote_retrieve_response_code( $response );
-        $response_body = wp_remote_retrieve_body( $response );
-
-        error_log( 'Bankful Response (' . $http_code . '): ' . $response_body );
-        
-        // Save the raw response as an order note for easier debugging
-        $order->add_order_note( 'Bankful Debug Response: ' . $response_body );
-
-        // Try to parse as JSON first.
-        $body_obj = json_decode( $response_body, true );
-        
-        // If not JSON, it might be form-encoded (less likely for V2 but possible for error cases).
-        if ( ! is_array( $body_obj ) ) {
-            parse_str( $response_body, $body_obj );
-        }
-
-        // Standardize status checks.
-        $status_raw = $body_obj['TRANS_STATUS_NAME'] ?? $body_obj['status'] ?? $body_obj['result'] ?? $body_obj['response_message'] ?? '';
-        $status     = strtoupper( (string) $status_raw );
-        $txn_id     = $body_obj['TRANS_RECORD_ID'] ?? $body_obj['transaction_id'] ?? '';
-
-        if ( $status === 'APPROVED' ) {
-            $order->set_transaction_id( $txn_id );
-            $order->payment_complete();
-            $order->add_order_note( 'Bankful payment successful. Transaction ID: ' . $txn_id );
-            $order->save();
-            WC()->cart->empty_cart();
+        if ( isset( $body['status'] ) && 'success' === $body['status'] ) {
+            update_option( 'bankful_options_api_access_token', $body['data']['bf_api_access_token'] );
+            update_option( 'bankful_options_public_key', $body['data']['merchant_public_key'] );
+            update_option( 'bankful_options_hash_salt', $body['data']['bf_salt'] );
             return [
-                'result'   => 'success',
-                'redirect' => $this->get_return_url( $order ),
+                'token'      => $body['data']['bf_api_access_token'],
+                'public_key' => $body['data']['merchant_public_key'],
+                'salt'       => $body['data']['bf_salt']
             ];
         }
-
-        // Failure handling - Try to find the most specific error message
-        $error_msg = $body_obj['ERROR_MESSAGE'] 
-                  ?? $body_obj['API_ADVICE'] 
-                  ?? $body_obj['response_message'] 
-                  ?? $body_obj['message'] 
-                  ?? $body_obj['RESP_MSG']
-                  ?? 'Transaction declined.';
-        
-        error_log( 'Bankful Payment Declined: ' . $error_msg . ' | Status: ' . $status );
-        wc_add_notice( 'Bankful Error: ' . $error_msg, 'error' );
-        return [ 'result' => 'failure' ];
+        return [];
     }
 
     public function validate_fields() { return true; }
+
+    /**
+     * Ported from official Bankful plugin: RSA Encryption
+     */
+    private function encrypt_payload( $payload, $publicKey ) {
+        if ( ! function_exists( 'openssl_public_encrypt' ) ) {
+            error_log( 'Bankful: OpenSSL extension is missing on this server.' );
+            return $payload;
+        }
+
+        $encrypted = '';
+        $startPublicKey = '-----BEGIN PUBLIC KEY-----' . PHP_EOL;
+        $endPublicKey = PHP_EOL . '-----END PUBLIC KEY-----';
+        $full_key = $startPublicKey . $publicKey . $endPublicKey;
+        
+        if ( @openssl_public_encrypt( $payload, $encrypted, $full_key ) ) {
+            return base64_encode( $encrypted );
+        }
+        return $payload; 
+    }
+
+    /**
+     * Ported from official Bankful plugin: HMAC Signature Generation
+     */
+    private function generate_signature( $data, $salt ) {
+        if ( ! is_array( $data ) || empty( $salt ) ) return '';
+
+        $notInclude = [ 'SIGNATURE' ];
+        $paramData  = array_filter( array_keys( $data ), function ( $key ) use ( $notInclude ) {
+            return ! in_array( $key, $notInclude );
+        } );
+
+        sort( $paramData );
+
+        $strField = '';
+        foreach ( $paramData as $paramName ) {
+            $paramValue = $data[ $paramName ];
+            if ( is_array( $paramValue ) || is_object( $paramValue ) ) {
+                $strField .= $paramName . wp_json_encode( $paramValue );
+            } elseif ( is_string( $paramValue ) || is_numeric( $paramValue ) || is_bool( $paramValue ) ) {
+                if ( is_string( $paramValue ) && '' !== (string) $paramValue ) {
+                    $strField .= $paramName . $paramValue;
+                } elseif ( ! is_string( $paramValue ) ) {
+                    $strField .= $paramName . $paramValue;
+                }
+            } elseif ( '' !== (string) $paramValue ) {
+                $strField .= $paramName . $paramValue;
+            }
+        }
+
+        return hash_hmac( 'sha256', $strField, $salt );
+    }
 }
