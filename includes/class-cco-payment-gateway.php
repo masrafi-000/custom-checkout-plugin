@@ -23,6 +23,7 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
         $this->description = $this->get_option( 'description' );
         $this->api_key     = $this->get_option( 'api_key' );
         $this->secret_key  = $this->get_option( 'secret_key' );
+        $this->merchant_id = $this->get_option( 'merchant_id' );
         $this->test_mode   = 'yes' === $this->get_option( 'test_mode' );
 
         add_action(
@@ -69,6 +70,13 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
                 'default'     => '',
                 'desc_tip'    => true,
             ],
+            'merchant_id' => [
+                'title'       => __( 'Merchant ID / Account ID', 'custom-checkout' ),
+                'type'        => 'text',
+                'description' => __( 'Your numeric Bankful Merchant ID or Account ID.', 'custom-checkout' ),
+                'default'     => '',
+                'desc_tip'    => true,
+            ],
         ];
     }
 
@@ -83,7 +91,7 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
         <fieldset id="bankful-card-form" class="cco-bankful-fields">
             <div class="cco-field">
                 <label>Card Number <span class="required">*</span></label>
-                <input id="bankful-card-number" type="text" autocomplete="off" name="bankful_card_num" placeholder="0000 0000 0000 0000">
+                <input id="bankful-card-num" type="text" autocomplete="off" name="bankful_card_num" placeholder="0000 0000 0000 0000">
             </div>
             <div class="cco-row">
                 <div class="cco-field">
@@ -136,17 +144,28 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
             ? 'https://api-dev1.bankfulportal.com/api/transaction/api'
             : 'https://api.paybybankful.com/api/transaction/api';
 
-        $year = trim( $expiry[1] );
-        if ( strlen( $year ) === 2 ) {
-            $year = '20' . $year;
+        $year = '';
+        $month = '';
+
+        if ( strpos( $expiry_str, '/' ) !== false ) {
+            $expiry = explode( '/', $expiry_str );
+            $month  = str_pad( trim( $expiry[0] ), 2, '0', STR_PAD_LEFT );
+            $year   = trim( $expiry[1] );
+            if ( strlen( $year ) === 2 ) {
+                $year = '20' . $year;
+            }
         }
 
-        $month = str_pad( trim( $expiry[0] ), 2, '0', STR_PAD_LEFT );
+        if ( empty( $month ) || empty( $year ) ) {
+            wc_add_notice( 'Invalid expiry date format. Please use MM/YY.', 'error' );
+            return [ 'result' => 'failure' ];
+        }
 
         // Bankful API uses application/x-www-form-urlencoded and body-based auth.
         $payload = [
             'req_username'     => trim( (string) $this->api_key ),
             'req_password'     => trim( (string) $this->secret_key ),
+            'merchant_id'      => trim( (string) $this->merchant_id ),
             'transaction_type' => 'CAPTURE',
             'amount'           => number_format( (float) $order->get_total(), 2, '.', '' ),
             'request_currency' => get_woocommerce_currency(),
@@ -164,6 +183,11 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
             'bill_addr_zip'    => $order->get_billing_postcode(),
             'bill_addr_country'=> $order->get_billing_country(),
         ];
+
+        $log_payload = $payload;
+        $log_payload['pmt_numb'] = 'XXXX-XXXX-XXXX-' . substr($card_num, -4);
+        $log_payload['pmt_key']  = 'XXX';
+        error_log( 'Bankful Request Payload: ' . json_encode( $log_payload ) );
 
         error_log( 'Bankful: Sending to ' . $api_url . ' | Order #' . $order_id . ' | Amount: ' . $payload['amount'] );
 
