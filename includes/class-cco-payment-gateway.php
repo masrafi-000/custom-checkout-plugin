@@ -23,7 +23,6 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
         $this->description = $this->get_option( 'description' );
         $this->api_key     = $this->get_option( 'api_key' );
         $this->secret_key  = $this->get_option( 'secret_key' );
-        $this->merchant_id = $this->get_option( 'merchant_id' );
         $this->test_mode   = 'yes' === $this->get_option( 'test_mode' );
 
         add_action(
@@ -67,13 +66,6 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
                 'title'       => __( 'Secret Key', 'custom-checkout' ),
                 'type'        => 'password',
                 'description' => __( 'Your Bankful Secret Key.', 'custom-checkout' ),
-                'default'     => '',
-                'desc_tip'    => true,
-            ],
-            'merchant_id' => [
-                'title'       => __( 'Merchant ID / Account ID', 'custom-checkout' ),
-                'type'        => 'text',
-                'description' => __( 'Your numeric Bankful Merchant ID or Account ID.', 'custom-checkout' ),
                 'default'     => '',
                 'desc_tip'    => true,
             ],
@@ -139,10 +131,10 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
         }
 
 
-        // ── Determine API endpoint ──
+        // ── Determine API endpoint (Using V2 for better AUD support) ──
         $api_url = $this->test_mode
-            ? 'https://api-dev1.bankfulportal.com/api/transaction/api'
-            : 'https://api.paybybankful.com/api/transaction/api';
+            ? 'https://api-dev1.bankfulportal.com/api/woocommerce-v2/transaction'
+            : 'https://api.paybybankful.com/api/woocommerce-v2/transaction';
 
         $year = '';
         $month = '';
@@ -164,24 +156,26 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
         // Bankful API uses application/x-www-form-urlencoded and body-based auth.
         $payload = [
             'req_username'     => trim( (string) $this->api_key ),
+            'username'         => trim( (string) $this->api_key ), // Dual field support
             'req_password'     => trim( (string) $this->secret_key ),
-            'merchant_id'      => trim( (string) $this->merchant_id ),
+            'password'         => trim( (string) $this->secret_key ), // Dual field support
             'transaction_type' => 'CAPTURE',
+            'request_action'   => 'CCAUTHCAP', // V2 Action
             'amount'           => number_format( (float) $order->get_total(), 2, '.', '' ),
-            'request_currency' => get_woocommerce_currency(),
+            'request_currency' => 'AUD', 
             'pmt_numb'         => $card_num,
             'pmt_expiry'       => $month . '/' . $year,
             'pmt_key'          => $cvc,
-            'xtl_order_id'     => (string) $order_id,
             'cust_fname'       => $order->get_billing_first_name(),
             'cust_lname'       => $order->get_billing_last_name(),
             'cust_email'       => $order->get_billing_email(),
-            'cust_phone'       => $order->get_billing_phone(),
             'bill_addr'        => $order->get_billing_address_1(),
             'bill_addr_city'   => $order->get_billing_city(),
             'bill_addr_state'  => $order->get_billing_state(),
             'bill_addr_zip'    => $order->get_billing_postcode(),
             'bill_addr_country'=> $order->get_billing_country(),
+            'cart_name'        => 'WooCommerce',
+            'xtl_order_id'     => (string) $order_id,
         ];
 
         $log_payload = $payload;
@@ -189,60 +183,52 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
         $log_payload['pmt_key']  = 'XXX';
         error_log( 'Bankful Request Payload: ' . json_encode( $log_payload ) );
 
-        error_log( 'Bankful: Sending to ' . $api_url . ' | Order #' . $order_id . ' | Amount: ' . $payload['amount'] );
+        error_log( 'Bankful: Sending JSON to ' . $api_url . ' | Order #' . $order_id );
 
         $response = wp_remote_post( $api_url, [
             'method'      => 'POST',
             'headers'     => [
-                'Content-Type'  => 'application/x-www-form-urlencoded; charset=utf-8',
+                'Content-Type'  => 'application/json',
+                'Accept'        => 'application/json',
                 'cache-control' => 'no-cache',
             ],
-            'body'        => $payload, 
+            'body'        => json_encode( $payload ), 
             'timeout'     => 45,
             'sslverify'   => true, 
         ] );
 
         if ( is_wp_error( $response ) ) {
-            $err = $response->get_error_message();
-            error_log( 'Bankful cURL Error: ' . $err );
-            $order->add_order_note( 'Bankful connection error: ' . $err );
-            wc_add_notice( 'Connection error with payment provider: ' . $err, 'error' );
+            $err_msg = $response->get_error_message();
+            error_log( 'Bankful Connection Error: ' . $err_msg );
+            wc_add_notice( 'Payment gateway connection error: ' . $err_msg, 'error' );
             return [ 'result' => 'failure' ];
         }
 
         $http_code     = wp_remote_retrieve_response_code( $response );
         $response_body = wp_remote_retrieve_body( $response );
+
+        error_log( 'Bankful Response (' . $http_code . '): ' . $response_body );
         
-        // Log for debugging.
-        error_log( 'Bankful HTTP ' . $http_code . ' Response: ' . $response_body );
-        $order->add_order_note( 'Bankful Debug: ' . $response_body );
+        // Save the raw response as an order note for easier debugging
+        $order->add_order_note( 'Bankful Debug Response: ' . $response_body );
 
         // Try to parse as JSON first.
         $body_obj = json_decode( $response_body, true );
         
-        // If not JSON, try to parse as form-encoded (common for legacy gateway APIs).
+        // If not JSON, it might be form-encoded (less likely for V2 but possible for error cases).
         if ( ! is_array( $body_obj ) ) {
             parse_str( $response_body, $body_obj );
         }
 
-        // Standardize status checks (Bankful uses uppercase for some fields).
-        $status_raw = $body_obj['TRANS_STATUS_NAME'] ?? $body_obj['status'] ?? $body_obj['result'] ?? $body_obj['response'] ?? $body_obj['response_code'] ?? '';
+        // Standardize status checks.
+        $status_raw = $body_obj['TRANS_STATUS_NAME'] ?? $body_obj['status'] ?? $body_obj['result'] ?? $body_obj['response_message'] ?? '';
         $status     = strtoupper( (string) $status_raw );
-        $txn_id     = $body_obj['TRANS_RECORD_ID'] ?? $body_obj['transaction_id'] ?? $body_obj['id'] ?? $body_obj['txn_id'] ?? '';
+        $txn_id     = $body_obj['TRANS_RECORD_ID'] ?? $body_obj['transaction_id'] ?? '';
 
-        $success_keywords = [ 'APPROVED', 'SUCCESS', 'CAPTURED', 'PAID', 'COMPLETED', '1' ];
-        $is_success = in_array( $status, $success_keywords, true );
-
-        // Even if status string is missing, check HTTP code and presence of a transaction ID.
-        if ( ! $is_success && $http_code >= 200 && $http_code < 300 && ! empty( $txn_id ) ) {
-            $is_success = true;
-        }
-
-        if ( $is_success ) {
-            $final_txn_id = $txn_id ?: ( 'BF-' . $order_id );
-            $order->set_transaction_id( $final_txn_id );
+        if ( $status === 'APPROVED' ) {
+            $order->set_transaction_id( $txn_id );
             $order->payment_complete();
-            $order->add_order_note( 'Bankful payment successful. Transaction ID: ' . $final_txn_id );
+            $order->add_order_note( 'Bankful payment successful. Transaction ID: ' . $txn_id );
             $order->save();
             WC()->cart->empty_cart();
             return [
@@ -251,17 +237,16 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
             ];
         }
 
-        // Payment failed or was rejected.
-        $error_msg = $body_obj['API_ADVICE'] ?? $body_obj['message'] ?? $body_obj['error'] ?? $body_obj['error_message'] ?? $body_obj['response_text'] ?? $body_obj['response_msg'] ?? $body_obj['reason'] ?? $body_obj['desc'] ?? '';
+        // Failure handling - Try to find the most specific error message
+        $error_msg = $body_obj['ERROR_MESSAGE'] 
+                  ?? $body_obj['API_ADVICE'] 
+                  ?? $body_obj['response_message'] 
+                  ?? $body_obj['message'] 
+                  ?? $body_obj['RESP_MSG']
+                  ?? 'Transaction declined.';
         
-        if ( empty( $error_msg ) ) {
-            // If we can't find a specific error field, show the raw response (truncated for safety) to see what's happening.
-            $clean_body = strip_tags( $response_body );
-            $error_msg  = 'Payment rejected (HTTP ' . $http_code . '). Response: ' . substr( $clean_body, 0, 200 );
-        }
-
-        error_log( 'Bankful Payment Failed: ' . $error_msg );
-        wc_add_notice( $error_msg, 'error' );
+        error_log( 'Bankful Payment Declined: ' . $error_msg . ' | Status: ' . $status );
+        wc_add_notice( 'Bankful Error: ' . $error_msg, 'error' );
         return [ 'result' => 'failure' ];
     }
 
