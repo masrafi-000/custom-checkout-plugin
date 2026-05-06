@@ -45,14 +45,6 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
                 'label'   => __( 'Enable Sandbox/Test Mode', 'custom-checkout' ),
                 'default' => 'no',
             ],
-            'simulation_mode' => [
-                'title'       => __( 'Simulation Mode', 'custom-checkout' ),
-                'type'        => 'checkbox',
-                'label'       => __( 'Simulate payments locally (skip real API call — for localhost/dev only)', 'custom-checkout' ),
-                'default'     => 'no',
-                'description' => __( 'When enabled, all payments instantly succeed without contacting Bankful. <strong>Disable before going live.</strong>', 'custom-checkout' ),
-                'desc_tip'    => false,
-            ],
             'title'       => [
                 'title'   => __( 'Title', 'custom-checkout' ),
                 'type'    => 'text',
@@ -138,17 +130,6 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
             return [ 'result' => 'failure' ];
         }
 
-        // ── Simulation Mode (explicit gateway setting — not host-based) ──
-        if ( 'yes' === $this->get_option( 'simulation_mode' ) ) {
-            $order->set_transaction_id( 'SIM-' . time() );
-            $order->payment_complete();
-            $order->add_order_note( '[SIMULATION] Payment simulated. No real transaction was made.' );
-            $order->save();
-            return [
-                'result'   => 'success',
-                'redirect' => $this->get_return_url( $order ),
-            ];
-        }
 
         // ── Determine API endpoint ──
         $api_url = $this->test_mode
@@ -168,7 +149,7 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
             'req_password'     => trim( (string) $this->secret_key ),
             'transaction_type' => 'CAPTURE',
             'amount'           => number_format( (float) $order->get_total(), 2, '.', '' ),
-            'request_currency' => 'AUD',
+            'request_currency' => get_woocommerce_currency(),
             'pmt_numb'         => $card_num,
             'pmt_expiry'       => $month . '/' . $year,
             'pmt_key'          => $cvc,
@@ -189,12 +170,12 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
         $response = wp_remote_post( $api_url, [
             'method'      => 'POST',
             'headers'     => [
-                'Content-Type'  => 'application/x-www-form-urlencoded',
+                'Content-Type'  => 'application/x-www-form-urlencoded; charset=utf-8',
                 'cache-control' => 'no-cache',
             ],
-            'body'        => $payload, // wp_remote_post automatically form-encodes arrays
+            'body'        => $payload, 
             'timeout'     => 45,
-            'sslverify'   => false, // Useful for some hosting environments with old CA bundles, can be set to true if server is updated
+            'sslverify'   => true, 
         ] );
 
         if ( is_wp_error( $response ) ) {
@@ -210,7 +191,7 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
         
         // Log for debugging.
         error_log( 'Bankful HTTP ' . $http_code . ' Response: ' . $response_body );
-        $order->add_order_note( 'Bankful Response (HTTP ' . $http_code . '): ' . $response_body );
+        $order->add_order_note( 'Bankful Debug: ' . $response_body );
 
         // Try to parse as JSON first.
         $body_obj = json_decode( $response_body, true );
