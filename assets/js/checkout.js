@@ -558,11 +558,7 @@
 
         // If paying with Bankful, collect the card data.
         if ( paymentMethod === 'bankful' ) {
-            payload.payment_data = {
-                bankful_card_num:    ( $( '#bankful-card-num' ).val() || '' ).replace( /\s/g, '' ),
-                bankful_card_expiry: ( $( '#bankful-card-expiry' ).val() || '' ).trim(),
-                bankful_card_cvc:    ( $( '#bankful-card-cvc' ).val() || '' ).trim(),
-            };
+            payload.payment_data = {};
         }
 
         try {
@@ -574,7 +570,11 @@
                 || data.order_received_url;
 
             if ( redirectUrl ) {
-                showSuccessModal( redirectUrl, data.order_id || '' );
+                if ( paymentMethod === 'bankful' ) {
+                    window.location.href = redirectUrl;
+                } else {
+                    showSuccessModal( redirectUrl, data.order_id || '' );
+                }
             } else {
                 throw new Error( 'Order completed but redirect URL was missing.' );
             }
