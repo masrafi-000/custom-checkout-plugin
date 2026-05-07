@@ -546,7 +546,8 @@
             return;
         }
 
-        const paymentMethod = $( 'input[name="payment_method"]:checked' ).val();
+        const $paymentInput = $( 'input[name="payment_method"]' );
+        const paymentMethod = $paymentInput.is(':radio') ? $( 'input[name="payment_method"]:checked' ).val() : $paymentInput.val();
         const payload = {
             payment_method: paymentMethod,
             billing:        collectAddress(),

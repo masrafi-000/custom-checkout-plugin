@@ -234,57 +234,29 @@ if ( WC()->cart->is_empty() ) {
                     <h3>Payment</h3>
                     <p class="cco-section-desc">All transactions are secure and encrypted.</p>
                     
-                    <div class="cco-payment-box">
-                        <label class="cco-payment-method cco-payment-method--active">
-                            <input type="radio" name="payment_method" value="bankful" checked>
-                            <div class="cco-payment-label-wrap">
-                                <span class="cco-payment-icon">💳</span>
-                                <div class="cco-payment-text">
-                                    <strong>Pay with Card</strong>
-                                    <span>Complete your payment securely via Bankful</span>
-                                    <!-- <div class="cco-payment-logos">
-                                        <img src="<?php echo esc_url( CCO_PLUGIN_URL . 'assets/images/Visa_Inc.-Logo.wine.png' ); ?>" alt="Visa">
-                                        <img src="<?php echo esc_url( CCO_PLUGIN_URL . 'assets/images/Mastercard-Logo.wine.png' ); ?>" alt="Mastercard">
-                                        <img src="<?php echo esc_url( CCO_PLUGIN_URL . 'assets/images/American_Express-Logo.wine.png' ); ?>" alt="Amex">
-                                        <img src="<?php echo esc_url( CCO_PLUGIN_URL . 'assets/images/Apple_Inc.-Logo.wine.png' ); ?>" alt="Apple Pay">
-                                        <img src="<?php echo esc_url( CCO_PLUGIN_URL . 'assets/images/Google_Pay-Logo.wine.png' ); ?>" alt="Google Pay">
-                                    </div> -->
+                    <div class="cco-payment-methods">
+                        <div class="cco-shipping-method-card cco-is-selected">
+                            <label class="cco-method-info">
+                                <input type="radio" name="payment_method" value="bankful" checked>
+                                <div class="cco-method-text">
+                                    <strong>Credit / Debit Card (Bankful)</strong>
+                                    <span>Safe & secure payment via Bankful hosted page</span>
                                 </div>
-                            </div>
-                        </label>
-                        <div id="cco-card-element" class="cco-payment-details">
-                            <div class="cco-bankful-fields-wrap" style="padding: 20px;">
-                                <div class="cco-field">
-                                    <input type="text" id="bankful-card-num" placeholder="Card Number" autocomplete="cc-number">
-                                </div>
-                                <div class="cco-row">
-                                    <div class="cco-field">
-                                        <input type="text" id="bankful-card-expiry" placeholder="MM / YY" autocomplete="cc-exp">
-                                    </div>
-                                    <div class="cco-field">
-                                        <input type="password" id="bankful-card-cvc" placeholder="CVC" autocomplete="cc-csc">
-                                    </div>
-                                </div>
+                            </label>
+                            <div class="cco-method-price">
+                                <span class="cco-payment-icon" style="font-size: 20px;">💳</span>
                             </div>
                         </div>
-
-                        <!-- <label class="cco-payment-method">
-                            <input type="radio" name="payment_method" value="bacs">
-                            <div class="cco-payment-label-wrap">
-                                <span class="cco-payment-icon">🏦</span>
-                                <div class="cco-payment-text">
-                                    <strong>Direct Bank Transfer</strong>
-                                    <span>Card Payments Down for 24hr - Quickest Way To Receive Your Order!</span>
-                                </div>
-                            </div>
-                        </label> -->
+                    </div>
+                    <div class="cco-redirect-notice" style="margin-top: 16px; font-size: 13px; color: var(--cco-text-muted);">
+                        <p><?php esc_html_e( 'You will be redirected to complete your payment securely.', 'custom-checkout' ); ?></p>
                     </div>
                 </section>
 
                 <!-- Submit -->
                 <div class="cco-submit-wrap">
                     <button type="button" id="cco-place-order" class="cco-btn-complete">
-                        <span class="cco-btn-text">Complete order</span>
+                        <span class="cco-btn-text">Pay & Complete order</span>
                         <span class="cco-btn-spinner" style="display:none;" aria-hidden="true">⏳</span>
                     </button>
                     <div class="cco-secure-footer">
