@@ -142,22 +142,39 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
         }
 
         // Try various common field names for Order ID
-        $order_id = $data['xtl_order_id'] ?? $data['TRANS_ORDER_ID'] ?? $data['order_id'] ?? $data['TRANS_RECORD_ID'] ?? 0;
-        $order    = wc_get_order( $order_id );
+        $order_id = $data['xtl_order_id'] ?? $data['TRANS_ORDER_ID'] ?? $data['order_id'] ?? $data['TRANS_RECORD_ID'] ?? $data['record_id'] ?? 0;
+        
+        error_log( 'Bankful Callback Resolved Order ID: ' . $order_id );
+        
+        $order = wc_get_order( $order_id );
 
         if ( $order ) {
             $order->add_order_note( 'Bankful Callback Received: ' . wp_json_encode( $data ) );
 
             // Try various common field names for Status
-            $status = strtoupper( (string) ($data['transaction_status'] ?? $data['TRANS_STATUS_NAME'] ?? $data['status'] ?? '') );
+            $status = strtoupper( (string) (
+                $data['transaction_status'] ?? 
+                $data['TRANS_STATUS_NAME'] ?? 
+                $data['status'] ?? 
+                $data['response_text'] ?? 
+                $data['result'] ?? 
+                ''
+            ) );
+            
             $txn_id = $data['transaction_id'] ?? $data['TRANS_RECORD_ID'] ?? $data['record_id'] ?? '';
+            
+            error_log( 'Bankful Callback Resolved Status: ' . $status );
 
-            if ( in_array( $status, [ 'APPROVED', 'SUCCESS', 'COMPLETE' ], true ) ) {
+            if ( in_array( $status, [ 'APPROVED', 'SUCCESS', 'COMPLETE', 'CAPTURED', 'OK', '1' ], true ) ) {
                 $order->payment_complete( $txn_id );
-                $order->add_order_note( 'Bankful payment approved via callback.' );
+                $order->add_order_note( 'Bankful payment approved via callback. Status: ' . $status );
+                error_log( 'Bankful Callback: Order ' . $order_id . ' marked as completed.' );
             } elseif ( in_array( $status, [ 'DECLINED', 'FAILED', 'ERROR' ], true ) ) {
-                $order->update_status( 'failed', 'Bankful payment failed/declined.' );
+                $order->update_status( 'failed', 'Bankful payment failed/declined. Status: ' . $status );
+                error_log( 'Bankful Callback: Order ' . $order_id . ' marked as failed.' );
             }
+        } else {
+            error_log( 'Bankful Callback: Order not found for ID ' . $order_id );
         }
 
         echo 'OK';
@@ -175,12 +192,20 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
         $data = array_merge( $_GET, $_POST );
 
         // Check if Bankful returned status in the URL or POST
-        $status = strtoupper( (string) ( $data['transaction_status'] ?? $data['status'] ?? $data['TRANS_STATUS_NAME'] ?? '' ) );
+        $status = strtoupper( (string) (
+            $data['transaction_status'] ?? 
+            $data['status'] ?? 
+            $data['TRANS_STATUS_NAME'] ?? 
+            $data['response_text'] ?? 
+            $data['result'] ?? 
+            ''
+        ) );
+        
         $txn_id = $data['transaction_id'] ?? $data['record_id'] ?? $data['TRANS_RECORD_ID'] ?? '';
 
-        if ( in_array( $status, [ 'APPROVED', 'SUCCESS', 'COMPLETE' ], true ) ) {
+        if ( in_array( $status, [ 'APPROVED', 'SUCCESS', 'COMPLETE', 'CAPTURED', 'OK', '1' ], true ) ) {
             $order->payment_complete( $txn_id );
-            $order->add_order_note( 'Bankful payment approved via return redirect.' );
+            $order->add_order_note( 'Bankful payment approved via return redirect. Status: ' . $status );
         }
     }
 
