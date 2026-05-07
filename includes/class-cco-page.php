@@ -29,15 +29,33 @@ class CCO_Page {
      */
     public static function register_virtual_page() {
         $slug = get_option( 'cco_slug', 'custom-checkout' );
+        
+        // Base checkout page
         add_rewrite_rule(
             '^' . $slug . '/?$',
             'index.php?cco_checkout=1',
+            'top'
+        );
+
+        // Order Received sub-endpoint
+        add_rewrite_rule(
+            '^' . $slug . '/order-received/([^/]+)/?$',
+            'index.php?cco_checkout=1&cco_order_received=$matches[1]',
+            'top'
+        );
+
+        // Order Pay sub-endpoint
+        add_rewrite_rule(
+            '^' . $slug . '/order-pay/([^/]+)/?$',
+            'index.php?cco_checkout=1&cco_order_pay=$matches[1]',
             'top'
         );
     }
 
     public static function add_query_var( $vars ) {
         $vars[] = 'cco_checkout';
+        $vars[] = 'cco_order_received';
+        $vars[] = 'cco_order_pay';
         return $vars;
     }
 

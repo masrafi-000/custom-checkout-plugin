@@ -26,6 +26,7 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
 
         add_action( 'woocommerce_api_cco_payment_gateway', [ $this, 'handle_callback' ] );
         add_action( 'woocommerce_thankyou_' . $this->id, [ $this, 'check_thankyou_status' ] );
+        add_action( 'template_redirect', [ $this, 'check_thankyou_status' ] );
     }
 
     public function init_form_fields() {
@@ -130,11 +131,14 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
     }
 
     public function handle_callback() {
+        error_log( 'Bankful Callback Hit!' );
         $json = file_get_contents( 'php://input' );
+        error_log( 'Bankful Callback Raw Body: ' . $json );
         $data = json_decode( $json, true );
 
         if ( ! $data ) {
             $data = $_POST;
+            error_log( 'Bankful Callback POST: ' . wp_json_encode( $_POST ) );
         }
 
         // Try various common field names for Order ID
@@ -160,7 +164,10 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
         exit;
     }
 
-    public function check_thankyou_status( $order_id ) {
+    public function check_thankyou_status( $order_id = 0 ) {
+        if ( ! $order_id ) {
+            $order_id = get_query_var( 'cco_order_received' ) ?: get_query_var( 'cco_order_pay' ) ?: ( $_GET['xtl_order_id'] ?? 0 );
+        }
         if ( ! $order_id ) return;
         $order = wc_get_order( $order_id );
         if ( ! $order || $order->is_paid() ) return;

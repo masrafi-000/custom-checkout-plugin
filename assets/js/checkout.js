@@ -608,4 +608,21 @@
         } );
     } );
 
+
+    /**
+     * Handle return from Payment Gateway (Bankful)
+     */
+    function checkReturnStatus() {
+        const path = window.location.pathname;
+        if ( path.includes( '/order-received/' ) ) {
+            const parts = path.split( '/' );
+            const orderId = parts[parts.length - 2] || parts[parts.length - 1];
+            if ( orderId && !isNaN( orderId ) ) {
+                showSuccessModal( window.location.href, orderId );
+            }
+        }
+    }
+
+    $( window ).on( 'load', checkReturnStatus );
+
 } )( jQuery );
