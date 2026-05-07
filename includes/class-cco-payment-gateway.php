@@ -25,6 +25,7 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
         );
 
         add_action( 'woocommerce_api_cco_payment_gateway', [ $this, 'handle_callback' ] );
+        add_action( 'woocommerce_thankyou_' . $this->id, [ $this, 'check_thankyou_status' ] );
     }
 
     public function init_form_fields() {
@@ -129,7 +130,6 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
     }
 
     public function handle_callback() {
-
         $json = file_get_contents( 'php://input' );
         $data = json_decode( $json, true );
 
@@ -137,22 +137,44 @@ class CCO_Payment_Gateway extends WC_Payment_Gateway {
             $data = $_POST;
         }
 
-        $order_id = $data['xtl_order_id'] ?? 0;
+        // Try various common field names for Order ID
+        $order_id = $data['xtl_order_id'] ?? $data['TRANS_ORDER_ID'] ?? $data['order_id'] ?? $data['TRANS_RECORD_ID'] ?? 0;
         $order    = wc_get_order( $order_id );
 
         if ( $order ) {
             $order->add_order_note( 'Bankful Callback Received: ' . wp_json_encode( $data ) );
 
-            $status = strtoupper( (string) ($data['transaction_status'] ?? '') );
-            if ( $status === 'APPROVED' || $status === 'SUCCESS' ) {
-                $order->payment_complete( $data['transaction_id'] ?? '' );
-            } elseif ( $status === 'DECLINED' || $status === 'FAILED' ) {
-                $order->update_status( 'failed', 'Bankful payment declined.' );
+            // Try various common field names for Status
+            $status = strtoupper( (string) ($data['transaction_status'] ?? $data['TRANS_STATUS_NAME'] ?? $data['status'] ?? '') );
+            $txn_id = $data['transaction_id'] ?? $data['TRANS_RECORD_ID'] ?? $data['record_id'] ?? '';
+
+            if ( in_array( $status, [ 'APPROVED', 'SUCCESS', 'COMPLETE' ], true ) ) {
+                $order->payment_complete( $txn_id );
+                $order->add_order_note( 'Bankful payment approved via callback.' );
+            } elseif ( in_array( $status, [ 'DECLINED', 'FAILED', 'ERROR' ], true ) ) {
+                $order->update_status( 'failed', 'Bankful payment failed/declined.' );
             }
         }
 
         echo 'OK';
         exit;
+    }
+
+    public function check_thankyou_status( $order_id ) {
+        if ( ! $order_id ) return;
+        $order = wc_get_order( $order_id );
+        if ( ! $order || $order->is_paid() ) return;
+
+        $data = array_merge( $_GET, $_POST );
+
+        // Check if Bankful returned status in the URL or POST
+        $status = strtoupper( (string) ( $data['transaction_status'] ?? $data['status'] ?? $data['TRANS_STATUS_NAME'] ?? '' ) );
+        $txn_id = $data['transaction_id'] ?? $data['record_id'] ?? $data['TRANS_RECORD_ID'] ?? '';
+
+        if ( in_array( $status, [ 'APPROVED', 'SUCCESS', 'COMPLETE' ], true ) ) {
+            $order->payment_complete( $txn_id );
+            $order->add_order_note( 'Bankful payment approved via return redirect.' );
+        }
     }
 
     public function validate_fields() { return true; }
